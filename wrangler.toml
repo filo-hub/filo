@@ -1,0 +1,27 @@
+name = "filo"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Frontend is served from ./public via Workers Assets (no separate Pages needed)
+# Gives you https://filo.<your-subdomain>.workers.dev
+[assets]
+directory = "./public"
+not_found_handling = "single-page-application"
+
+# R2 bucket — create with: wrangler r2 bucket create filo-files
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "filo-files"
+
+# D1 database — create with: wrangler d1 create filo-db
+[[d1_databases]]
+binding = "DB"
+database_name = "filo-db"
+database_id = "351337b5-6315-4004-961d-af7faa7288ec"
+
+# Optional: set upload token. Or use: wrangler secret put UPLOAD_TOKEN
+# [vars]
+# UPLOAD_TOKEN = "change-me"
+
+[observability]
+enabled = true

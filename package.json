@@ -1,0 +1,18 @@
+{
+  "name": "filo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "filo — plug-and-play permanent file archive for any file type — Cloudflare Worker + R2 + D1",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create filo-db",
+    "db:migrate": "wrangler d1 execute filo-db --file=./schema.sql",
+    "r2:create": "wrangler r2 bucket create filo-files",
+    "secret:token": "wrangler secret put UPLOAD_TOKEN"
+  },
+  "devDependencies": {
+    "wrangler": "^3.80.0"
+  }
+}
