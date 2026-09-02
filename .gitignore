@@ -3,3 +3,12 @@ node_modules/
 .dev.vars
 .upload_token
 *.pdf
+
+# OS / Editor junk
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# Cloudflare
+wrangler-account.json
