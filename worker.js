@@ -1,7 +1,7 @@
 /**
  * filo - Cloudflare Worker (any file type)
  * Plug-and-play: upload -> permanent /p/<id> link
- * Bindings: BUCKET (R2), DB (D1), UPLOAD_TOKEN (secret)
+ * Bindings: BUCKET (R2), DB (D1) — no auth (single user, open)
  */
 const ID_LEN = 8;
 const ID_CHARS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -52,16 +52,7 @@ function json(data, status = 200, origin) {
   });
 }
 
-function unauthorized(origin) {
-  return json({ error: "Unauthorized. Set Authorization: Bearer <UPLOAD_TOKEN>" }, 401, origin);
-}
 
-function isAuthorized(req, env) {
-  const token = env.UPLOAD_TOKEN;
-  if (!token) return true; // if not set, allow (dev mode) - set in prod!
-  const hdr = req.headers.get("Authorization") || "";
-  return hdr === `Bearer ${token}`;
-}
 
 export default {
   async fetch(req, env, ctx) {
@@ -140,9 +131,8 @@ export default {
       }
     }
 
-    // API: Upload - protected
+    // API: Upload - open (no auth)
     if (path === "/api/upload" && req.method === "POST") {
-      if (!isAuthorized(req, env)) return unauthorized(origin);
 
       let form;
       try {
@@ -215,9 +205,8 @@ export default {
       );
     }
 
-    // API: Delete - protected
+    // API: Delete - open (no auth)
     if (path.startsWith("/api/delete/") && req.method === "DELETE") {
-      if (!isAuthorized(req, env)) return unauthorized(origin);
       const id = path.slice("/api/delete/".length).split("/")[0];
       if (!id) return json({ error: "Missing id" }, 400, origin);
       await env.BUCKET.delete(`p/${id}`);

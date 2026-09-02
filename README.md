@@ -48,8 +48,8 @@ No custom domain, no paid hosting, no manual HTML/JSON.
 
 ## Security
 
-* `GET /p/*` public, `POST /api/upload` + `DELETE` require `Authorization: Bearer <UPLOAD_TOKEN>` (`worker.js:35`). No token = anyone can upload (dev mode) — set token in prod.
-* Validates 25MB limit, stores original `Content-Type`; no executable handling.
+* `GET /p/*` public, `POST /api/upload` + `DELETE` open (no auth — single user, you said only you use it). Add token later if needed: restore `isAuthorized` in `worker.js:35` + `wrangler secret put UPLOAD_TOKEN`.
+* Validates 25MB limit, stores original `Content-Type`; no executable handling. Cloudflare handles HTTPS/DDoS.
 
 ## GitHub Actions (optional auto-deploy)
 

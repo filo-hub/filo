@@ -1,19 +1,12 @@
 const $ = s => document.querySelector(s);
 const drop = $("#drop"), fileInput = $("#file"), uploadBtn = $("#uploadBtn");
 const tbody = $("#tbody"), result = $("#result"), progress = $("#progress");
-const uploadInfo = $("#uploadInfo"), tokenInput = $("#token"), tokenStatus = $("#tokenStatus");
+const uploadInfo = $("#uploadInfo");
 
 let pickedFile = null;
 
 function fmtSize(b){ if(b<1024) return b+" B"; if(b<1024*1024) return (b/1024).toFixed(1)+" KB"; return (b/1024/1024).toFixed(2)+" MB"; }
 function fmtDate(ts){ return new Date(ts).toLocaleString(); }
-function getToken(){ return localStorage.getItem("upload_token") || ""; }
-function saveToken(){
-  localStorage.setItem("upload_token", tokenInput.value.trim());
-  tokenStatus.textContent = tokenInput.value.trim() ? "✓ saved" : "cleared";
-  setTimeout(()=> tokenStatus.textContent="", 2000);
-}
-tokenInput.value = getToken();
 
 function setPicked(file){
   pickedFile = file;
@@ -50,12 +43,8 @@ uploadBtn.addEventListener("click", async ()=>{
   if(title) fd.append("title", title);
   if(category) fd.append("category", category);
 
-  const headers = {};
-  const tok = getToken();
-  if(tok) headers["Authorization"] = "Bearer " + tok;
-
   try{
-    const r = await fetch("/api/upload", { method:"POST", headers, body: fd });
+    const r = await fetch("/api/upload", { method:"POST", body: fd });
     const j = await r.json();
     if(!r.ok) throw new Error(j.error || "Upload failed");
     const url = j.url;
@@ -108,15 +97,12 @@ function esc(s){ return String(s).replace(/[&<>"']/g, m=> ({'&':'&amp;','<':'&lt
 
 async function delDoc(id){
   if(!confirm("Delete "+id+" ? This removes the file and the permanent link.")) return;
-  const tok = getToken();
-  if(!tok){ alert("Set upload token first (same token protects delete)"); return; }
-  const r = await fetch("/api/delete/"+id, { method:"DELETE", headers:{ Authorization:"Bearer "+tok }});
+  const r = await fetch("/api/delete/"+id, { method:"DELETE" });
   const j = await r.json();
   if(!r.ok) alert(j.error||"Delete failed");
   loadList();
 }
 window.delDoc = delDoc;
 window.loadList = loadList;
-window.saveToken = saveToken;
 
 loadList();
