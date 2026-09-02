@@ -1,6 +1,6 @@
 # filo — Plug & Play Permanent Links
 
-Upload any file (PDF, image, doc, zip, etc.) → get `https://filo-hub.pages.dev/p/8xK29m` (or `https://filo.dinesh-io.workers.dev/p/8xK29m`) that never breaks, even if the original site deletes it.
+Upload any file (PDF, image, doc, zip, etc.) → get `https://filo-hub.pages.dev/p/8xK29m` that never breaks, even if the original site deletes it.
 
 * **GitHub = code only.** Files go to **R2** (free 10GB), never committed.
 * **One deploy.** Worker serves frontend + API + files.
@@ -25,11 +25,11 @@ npx wrangler secret put UPLOAD_TOKEN
 
 # 4. Deploy
 npm run deploy
-# -> https://filo.dinesh-io.workers.dev
-# Pages (clean, no suffix): https://filo-hub.pages.dev/p/8xK29m (proxies to Worker)
+# -> https://filo-hub.pages.dev/p/8xK29m (Pages, clean, primary)
+# (internal Worker: https://filo.dinesh-io.workers.dev — proxied, not shared)
 ```
 
-Open either URL (`filo-hub.pages.dev` clean `pages.dev`, or `filo.dinesh-io.workers.dev`) → save token in the UI → drag any file → copy `/p/<id>` link for Facebook/WhatsApp/YouTube.
+Open `https://filo-hub.pages.dev` → save token in the UI → drag any file → copy `/p/<id>` link for Facebook/WhatsApp/YouTube.
 
 No custom domain, no paid hosting, no manual HTML/JSON.
 
