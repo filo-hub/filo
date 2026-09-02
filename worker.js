@@ -190,7 +190,10 @@ export default {
         return json({ error: "DB insert failed: " + e.message }, 500, origin);
       }
 
-      const base = `${url.protocol}//${url.host}`;
+      // respect Pages proxy via x-forwarded-host
+      const forwardedHost = req.headers.get("x-forwarded-host");
+      const host = forwardedHost || url.host;
+      const base = `${url.protocol}//${host}`;
       const permanentUrl = `${base}/p/${id}`;
       return json(
         {

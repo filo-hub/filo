@@ -4,7 +4,7 @@ export default {
     if (url.pathname.startsWith("/p/") || url.pathname.startsWith("/api/")) {
       const workerUrl = new URL(req.url);
       const originalHost = url.host;
-      workerUrl.hostname = "filo.dinesh-io.workers.dev";
+      workerUrl.hostname = "filo.ajax.workers.dev";
       workerUrl.protocol = "https:";
       let newReq = new Request(workerUrl, req);
       // preserve original host for URL generation
