@@ -1,9 +1,10 @@
 name = "filo"
 main = "worker.js"
-compatibility_date = "2024-11-01"
+compatibility_date = "2025-11-01"
 
 # Frontend is served from ./public via Workers Assets (no separate Pages needed)
 # Gives you https://filo.<your-subdomain>.workers.dev
+# If using Cloudflare Pages, see public/_worker.js proxy.
 [assets]
 directory = "./public"
 not_found_handling = "single-page-application"
@@ -20,6 +21,7 @@ database_name = "filo-db"
 database_id = "351337b5-6315-4004-961d-af7faa7288ec"
 
 # Optional: set upload token. Or use: wrangler secret put UPLOAD_TOKEN
+# If you want to protect upload/delete, re-add auth check in worker.js
 # [vars]
 # UPLOAD_TOKEN = "change-me"
 

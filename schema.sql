@@ -1,4 +1,4 @@
--- Run: wrangler d1 execute pci-archive --file=./schema.sql
+-- Run: wrangler d1 execute filo-db --file=./schema.sql
 CREATE TABLE IF NOT EXISTS docs (
   id TEXT PRIMARY KEY,
   filename TEXT NOT NULL,
