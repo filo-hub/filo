@@ -13,6 +13,6 @@
     "secret:token": "wrangler secret put UPLOAD_TOKEN"
   },
   "devDependencies": {
-    "wrangler": "^3.114.0"
+    "wrangler": "^4.128.0"
   }
 }
