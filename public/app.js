@@ -7,12 +7,45 @@ let pickedFile = null;
 
 function fmtSize(b){ if(b<1024) return b+" B"; if(b<1024*1024) return (b/1024).toFixed(1)+" KB"; return (b/1024/1024).toFixed(2)+" MB"; }
 function fmtDate(ts){ return new Date(ts).toLocaleString(); }
+function isSafeId(id){ return /^[A-Za-z0-9]{6,12}$/.test(id); }
+
+function fileIcon(name){
+  const ext = (name.split(".").pop()||"").toLowerCase();
+  if(["jpg","jpeg","png","webp","gif","svg"].includes(ext)) return "🖼️";
+  if(["mp4","mov","avi","mkv"].includes(ext)) return "🎬";
+  if(["mp3","wav","ogg","m4a"].includes(ext)) return "🎵";
+  if(["pdf"].includes(ext)) return "📄";
+  if(["doc","docx"].includes(ext)) return "📝";
+  if(["xls","xlsx","csv"].includes(ext)) return "📊";
+  if(["ppt","pptx"].includes(ext)) return "📈";
+  if(["zip","rar","7z","tar","gz"].includes(ext)) return "🗜️";
+  if(["json","js","ts","html","css"].includes(ext)) return "🧩";
+  return "📦";
+}
+function pillClass(cat){
+  const c=(cat||"").toLowerCase();
+  if(!c) return "pill-sky";
+  if(c.includes("pci")||c.includes("circular")||c.includes("report")) return "pill-indigo";
+  if(c.includes("image")||c.includes("photo")||c.includes("png")||c.includes("jpg")) return "pill-amber";
+  if(c.includes("video")||c.includes("mp4")) return "pill-rose";
+  if(c.includes("doc")||c.includes("pdf")) return "pill-emerald";
+  return "pill-sky";
+}
 
 function setPicked(file){
   pickedFile = file;
-  if(!file){ uploadInfo.textContent=""; uploadBtn.disabled=true; return; }
-  uploadInfo.textContent = `Selected: ${file.name} • ${fmtSize(file.size)} • ${file.type || "unknown type"}`;
-  if(file.size > 25*1024*1024) uploadInfo.textContent += " ⚠️ Too large (max 25MB)";
+  if(!file){ uploadInfo.textContent=""; uploadInfo.className="meta"; uploadBtn.disabled=true; return; }
+  uploadInfo.className="meta";
+  uploadInfo.innerHTML="";
+  const icon = document.createElement("span"); icon.textContent=fileIcon(file.name);
+  const name = document.createElement("strong"); name.textContent=file.name;
+  const size = document.createElement("span"); size.className="pill pill-indigo"; size.textContent=fmtSize(file.size);
+  const type = document.createElement("span"); type.className="muted"; type.textContent=file.type || "unknown type";
+  uploadInfo.append(icon, name, size, type);
+  if(file.size > 25*1024*1024){
+    const warn=document.createElement("span"); warn.className="pill pill-rose"; warn.textContent="⚠️ Too large (max 25MB)";
+    uploadInfo.appendChild(warn);
+  }
   uploadBtn.disabled = file.size === 0 || file.size > 25*1024*1024;
 }
 
@@ -29,17 +62,14 @@ drop.addEventListener("drop", e=>{
   if(f) setPicked(f);
 });
 
-function esc(s){ return String(s).replace(/[&<>"']/g, m=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
-function isSafeId(id){ return /^[A-Za-z0-9]{6,12}$/.test(id); }
-
 async function copyText(text, btn){
   try{
     await navigator.clipboard.writeText(text);
     const orig = btn.textContent;
     btn.textContent='Copied!';
-    setTimeout(()=>btn.textContent=orig, 1200);
+    btn.style.background="#dcfce7";
+    setTimeout(()=>{btn.textContent=orig; btn.style.background="";},1200);
   } catch{
-    // Fallback: prompt
     prompt("Copy URL:", text);
   }
 }
@@ -47,36 +77,20 @@ async function copyText(text, btn){
 function showResult(url, filename, size){
   result.style.display="flex";
   result.innerHTML="";
-  const label = document.createElement("span");
-  label.textContent = "Permanent link:";
-  const link = document.createElement("a");
-  link.href = url;
-  link.target = "_blank";
-  link.rel = "noopener";
-  link.textContent = url;
-  link.style.wordBreak = "break-all";
-  link.style.color = "#0f172a";
-  link.style.fontWeight = "600";
-  const copyBtn = document.createElement("button");
-  copyBtn.className = "btn secondary";
-  copyBtn.textContent = "Copy";
-  copyBtn.addEventListener("click", ()=> copyText(url, copyBtn));
-  const openLink = document.createElement("a");
-  openLink.className = "btn secondary";
-  openLink.href = url;
-  openLink.target = "_blank";
-  openLink.textContent = "Open file";
-  openLink.style.textDecoration="none";
-  const meta = document.createElement("span");
-  meta.className = "small";
-  meta.textContent = `${filename} • ${fmtSize(size)}`;
-  result.append(label, link, copyBtn, openLink, meta);
+  const dot=document.createElement("span"); dot.className="progress-dot";
+  const label=document.createElement("span"); label.style.fontWeight="800"; label.style.color="#065f46"; label.textContent="Permanent link:";
+  const link=document.createElement("a"); link.href=url; link.target="_blank"; link.rel="noopener"; link.textContent=url;
+  const copyBtn=document.createElement("button"); copyBtn.className="btn btn-secondary"; copyBtn.textContent="Copy"; copyBtn.addEventListener("click", ()=> copyText(url, copyBtn));
+  const openLink=document.createElement("a"); openLink.className="btn btn-primary"; openLink.href=url; openLink.target="_blank"; openLink.textContent="Open ↗";
+  const meta=document.createElement("span"); meta.className="pill pill-emerald"; meta.textContent=`${fileIcon(filename)} ${filename} • ${fmtSize(size)}`;
+  result.append(dot, label, link, copyBtn, openLink, meta);
 }
 
 uploadBtn.addEventListener("click", async ()=>{
   if(!pickedFile) return;
   uploadBtn.disabled = true;
   progress.textContent = "Uploading…";
+  progress.className="meta uploading";
   result.style.display="none";
   result.innerHTML="";
 
@@ -91,31 +105,31 @@ uploadBtn.addEventListener("click", async ()=>{
     const r = await fetch("/api/upload", { method:"POST", body: fd });
     const j = await r.json();
     if(!r.ok) throw new Error(j.error || "Upload failed");
-    // Validate returned id/url before rendering
     if(!j.id || !isSafeId(j.id)) throw new Error("Invalid server response");
-    // Use location.origin to avoid trusting server's host header injection
     const safeUrl = location.origin + "/p/" + j.id;
-    progress.textContent = "✓ Uploaded";
+    progress.textContent = "✓ Uploaded — permanent";
+    progress.className="meta success";
     showResult(safeUrl, j.filename || pickedFile.name, j.size || pickedFile.size);
     setPicked(null);
     fileInput.value="";
     loadList();
   }catch(e){
     progress.textContent = "✗ " + (e.message || "Upload failed");
+    progress.className="meta error";
   } finally {
     uploadBtn.disabled = !pickedFile;
   }
 });
 
 async function loadList(){
-  tbody.innerHTML = `<tr><td colspan="5" class="small" style="padding:16px;text-align:center">Loading…</td></tr>`;
+  tbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:18px;text-align:center">Loading…</td></tr>`;
   try{
     const r = await fetch("/api/list");
     if(!r.ok) throw new Error("Failed to load: " + r.status);
     const j = await r.json();
     const docs = j.docs || [];
     if(docs.length===0){
-      tbody.innerHTML = `<tr><td colspan="5" class="small" style="padding:16px;text-align:center">No files yet — upload one above. Permanent links will appear here.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:18px;text-align:center">No files yet — upload one above. Permanent links will appear here. 🌈</td></tr>`;
       return;
     }
     tbody.innerHTML = "";
@@ -125,46 +139,51 @@ async function loadList(){
       const tr = document.createElement("tr");
 
       const tdFile = document.createElement("td");
-      const mono = document.createElement("div");
-      mono.className = "mono";
-      mono.textContent = d.filename || d.id;
-      const small = document.createElement("div");
-      small.className = "small";
-      small.textContent = (d.title || "") + (d.category ? " • " + d.category : "");
-      tdFile.append(mono, small);
+      const titleRow=document.createElement("div"); titleRow.style.display="flex"; titleRow.style.alignItems="center"; titleRow.style.gap="8px";
+      const ic=document.createElement("span"); ic.textContent=fileIcon(d.filename||d.id); ic.style.fontSize="16px";
+      const mono = document.createElement("div"); mono.className = "mono"; mono.style.fontWeight="700"; mono.textContent = d.filename || d.id;
+      titleRow.append(ic, mono);
+      const small = document.createElement("div"); small.style.marginTop="4px"; small.style.display="flex"; small.style.gap="6px"; small.style.flexWrap="wrap";
+      if(d.title){ const t=document.createElement("span"); t.className="pill pill-indigo"; t.textContent=d.title; small.appendChild(t); }
+      if(d.category){ const c=document.createElement("span"); c.className="pill "+pillClass(d.category); c.textContent=d.category; small.appendChild(c); }
+      if(!d.title && !d.category){ const e=document.createElement("span"); e.className="muted"; e.textContent="—"; small.appendChild(e); }
+      tdFile.append(titleRow, small);
 
       const tdUrl = document.createElement("td");
       const a = document.createElement("a");
       a.href = url;
       a.target = "_blank";
       a.className = "mono";
+      a.style.color="#4338ca"; a.style.fontWeight="700"; a.style.textDecoration="none"; a.style.borderBottom="1px dashed #c7d2fe";
       a.textContent = location.host + "/p/" + d.id;
       const br = document.createElement("br");
       const copyBtn = document.createElement("button");
-      copyBtn.className = "btn secondary";
-      copyBtn.style.cssText = "padding:4px 8px;margin-top:6px";
+      copyBtn.className = "btn btn-ghost";
+      copyBtn.style.cssText = "padding:6px 10px;margin-top:8px;font-size:12px";
       copyBtn.textContent = "Copy";
       copyBtn.addEventListener("click", ()=> copyText(url, copyBtn));
       tdUrl.append(a, br, copyBtn);
 
       const tdSize = document.createElement("td");
-      tdSize.textContent = fmtSize(d.size || 0);
+      const sz=document.createElement("span"); sz.className="pill pill-sky"; sz.textContent=fmtSize(d.size || 0);
+      tdSize.appendChild(sz);
 
       const tdDate = document.createElement("td");
-      tdDate.className = "small";
+      tdDate.className = "muted";
+      tdDate.style.fontSize="12px";
       tdDate.textContent = d.uploaded_at ? fmtDate(d.uploaded_at) : "";
 
       const tdActions = document.createElement("td");
       tdActions.className = "actions";
       const view = document.createElement("a");
-      view.className = "btn secondary";
+      view.className = "btn btn-secondary";
       view.href = url;
       view.target = "_blank";
-      view.style.cssText = "text-decoration:none;padding:6px 8px";
+      view.style.cssText = "text-decoration:none;padding:7px 10px;font-size:12px;background:#eef2ff;color:#4338ca;border-color:#c7d2fe";
       view.textContent = "View";
       const delBtn = document.createElement("button");
-      delBtn.className = "btn secondary";
-      delBtn.style.padding="6px 8px";
+      delBtn.className = "btn btn-ghost";
+      delBtn.style.padding="7px 10px"; delBtn.style.fontSize="12px";
       delBtn.textContent="Delete";
       delBtn.addEventListener("click", ()=> delDoc(d.id));
       tdActions.append(view, delBtn);
@@ -173,15 +192,14 @@ async function loadList(){
       tbody.appendChild(tr);
     }
     if(!tbody.children.length){
-      tbody.innerHTML = `<tr><td colspan="5" class="small" style="padding:16px;text-align:center">No valid files</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" class="muted" style="padding:18px;text-align:center">No valid files</td></tr>`;
     }
   }catch(e){
-    // Use textContent to avoid XSS
     tbody.innerHTML = "";
     const tr = document.createElement("tr");
     const td = document.createElement("td");
     td.colSpan = 5;
-    td.style.cssText = "color:#dc2626;padding:16px";
+    td.style.cssText = "color:#dc2626;padding:16px;font-weight:700";
     td.textContent = e.message || "Failed to load";
     tr.appendChild(td);
     tbody.appendChild(tr);
