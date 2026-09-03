@@ -16,6 +16,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      - run: npm run build
       - run: npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -26,7 +27,7 @@ jobs:
           cat > wrangler.toml <<'TOML'
           name = "filo-hub"
           compatibility_date = "2025-11-01"
-          pages_build_output_dir = "./public"
+          pages_build_output_dir = "./dist"
           [[r2_buckets]]
           binding = "BUCKET"
           bucket_name = "filo-files"
@@ -35,7 +36,7 @@ jobs:
           database_name = "filo-db"
           database_id = "351337b5-6315-4004-961d-af7faa7288ec"
           TOML
-          npx wrangler pages deploy public --project-name filo-hub --branch main
+          npx wrangler pages deploy dist --project-name filo-hub --branch main
           mv wrangler.workers.toml wrangler.toml
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

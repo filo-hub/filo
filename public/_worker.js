@@ -61,6 +61,38 @@ function contentDisposition(filename) {
   const fallback = safe.replace(/"/g, "_");
   return `inline; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
+function autoFilename(originalName, titleInput, buf){
+  let base=(titleInput||"").trim();
+  if(!base && buf){
+    try{
+      const text=new TextDecoder().decode(buf.slice(0,2000));
+      const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(l=>/[A-Za-z0-9]{3,}/.test(l));
+      if(lines[0]) base=lines[0].slice(0,10);
+    }catch{}
+  }
+  if(!base){
+    const orig=(originalName||"file").replace(/\.[^/.]+$/, "");
+    base=orig;
+  }
+  base=base.replace(/\s+/g,"").replace(/[^A-Za-z0-9._-]/g,"").slice(0,10)||"file";
+  const ext=extOf(originalName)||"bin";
+  const d=new Date(); const dd=String(d.getDate()).padStart(2,'0'); const mm=String(d.getMonth()+1).padStart(2,'0'); const yyyy=d.getFullYear();
+  const check=nanoid(8);
+  return `${base}${dd}${mm}${yyyy}${check}.${ext}`;
+}
+async function bucketBytes(bucket){
+  if(!bucket) return 0;
+  let total=0, cursor;
+  do{
+    const res=await bucket.list({ cursor, limit:1000 });
+    for(const o of res.objects) total+=o.size;
+    cursor=res.truncated ? res.cursor : undefined;
+  } while(cursor);
+  return total;
+}
+async function filoBytes(env){
+  return await bucketBytes(env.BUCKET);
+}
 
 export default {
   async fetch(req, env, ctx) {
@@ -153,10 +185,11 @@ export default {
       if (file.size === 0) return json({ error: "Empty file" }, 400, origin);
       if (file.size > MAX_SIZE) return json({ error: `File too large. Max ${MAX_SIZE/1024/1024}MB` }, 400, origin);
       const buf = await file.arrayBuffer();
-      const filename = sanitizeFilename(file.name || "file");
-      const contentType = guessContentType(filename, file.type);
-      const title = (form.get("title")||"").toString().slice(0,200);
-      const category = (form.get("category")||"").toString().slice(0,100);
+      const titleInput=(form.get("title")||"").toString().slice(0,200);
+      const category=(form.get("category")||"").toString().slice(0,100);
+      const filename=sanitizeFilename(autoFilename(file.name||"file", titleInput, buf));
+      const contentType=guessContentType(filename, file.type);
+      const title=titleInput ? titleInput.replace(/\s+/g,"").slice(0,200) : filename.replace(/\.[^/.]+$/,"").slice(0,200);
       let id;
       for(let attempt=0; attempt<5; attempt++){
         const candidate=nanoid();
@@ -190,6 +223,12 @@ export default {
       return json({ ok:true, id }, 200, origin);
     }
 
+    if (path === "/api/storage" && req.method==="GET") {
+      try{
+        const filo=await filoBytes(env);
+        return json({ filo, total:filo, free:10*1024*1024*1024, usedPct:(filo/(10*1024*1024*1024))*100 },200,origin);
+      }catch(e){ return json({error:e.message},500,origin); }
+    }
     if (path === "/api/health") return json({ ok:true, time: Date.now() }, 200, origin);
     if (path.startsWith("/api/")) return json({ error:"Not found" }, 404, origin);
 

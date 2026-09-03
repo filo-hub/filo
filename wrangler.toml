@@ -2,12 +2,12 @@ name = "filo"
 main = "worker.js"
 compatibility_date = "2025-11-01"
 
-# Workers Assets (filo.ajax.workers.dev) — keep for fallback; Pages is primary like tgpc/nofi
+# Workers Assets — Vite build output (like tgpc/nofi)
 [assets]
-directory = "./public"
+directory = "./dist"
 not_found_handling = "single-page-application"
 
-# R2 bucket — create with: wrangler r2 bucket create filo-files
+# R2 bucket — filo only (tgpc untouched)
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "filo-files"

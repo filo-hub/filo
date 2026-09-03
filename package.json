@@ -5,14 +5,26 @@
   "description": "filo — plug-and-play permanent file archive for any file type — Cloudflare Worker + R2 + D1",
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "wrangler dev --local --port 8787",
+    "dev:vite": "vite --port 5173",
+    "build": "vite build",
+    "preview": "vite preview",
+    "deploy": "npm run build && wrangler deploy",
+    "deploy:pages": "npm run build && wrangler pages deploy dist --project-name filo-hub --branch main",
     "db:create": "wrangler d1 create filo-db",
     "db:migrate": "wrangler d1 execute filo-db --file=./schema.sql",
     "r2:create": "wrangler r2 bucket create filo-files",
     "secret:token": "wrangler secret put UPLOAD_TOKEN"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.0",
+    "autoprefixer": "^10.5.4",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^3.4.19",
+    "vite": "^8.2.2",
     "wrangler": "^4.128.0"
+  },
+  "dependencies": {
+    "svelte": "^5.57.0"
   }
 }
