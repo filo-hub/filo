@@ -85,7 +85,7 @@
 <div class="h-screen flex bg-[#fcfcfd] text-zinc-900 overflow-hidden">
   <!-- sidebar -->
   <aside class="hidden md:flex w-[160px] shrink-0 bg-white border-r border-zinc-200 flex-col">
-    <div class="px-5 py-4 border-b border-zinc-100">
+    <div class="h-[56px] px-5 flex items-center border-b border-zinc-200">
       <div class="font-bold text-[22px] tracking-tight leading-none">filo</div>
     </div>
     <nav class="p-3 flex-1 space-y-1">
