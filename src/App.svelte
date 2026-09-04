@@ -7,6 +7,11 @@
   let q = $state('')
   let drag = $state(false)
   let fileInput
+  let needToken = $state(false)
+  let tokenInput = $state('')
+  let token = ''
+  try{ token = localStorage.getItem('filo_token') || '' }catch{}
+  function authHeaders(){ return token ? { 'x-upload-token': token } : {} }
   let now = $state(new Date())
   $effect(()=>{
     const t=setInterval(()=>now=new Date(),1000)
@@ -31,18 +36,8 @@
     if(['zip','rar','7z'].includes(ext)) return '🗜️'
     return '📄'
   }
-  function fileColor(ext){
-    ext=(ext||'').toLowerCase()
-    if(['jpg','jpeg','png','gif','svg','webp'].includes(ext)) return 'from-violet-500 to-indigo-500'
-    if(['pdf'].includes(ext)) return 'from-rose-500 to-orange-500'
-    if(['doc','docx'].includes(ext)) return 'from-blue-500 to-cyan-500'
-    if(['xls','xlsx','csv'].includes(ext)) return 'from-emerald-500 to-teal-500'
-    if(['zip','rar','7z'].includes(ext)) return 'from-amber-500 to-yellow-500'
-    if(['mp4','mov'].includes(ext)) return 'from-pink-500 to-rose-500'
-    return 'from-zinc-700 to-zinc-900'
-  }
 
-  let storage = $state({ total:0, filo:0, free:10*1024*1024*1024 })
+  let storage = $state({ total:0, count:0 })
   let filtered = $derived(docs.filter(d=>{
     if(!q) return true
     const hay=[d.filename,d.title,d.id].join(' ').toLowerCase()
@@ -51,15 +46,28 @@
 
   async function load(){
     try{
-      const r=await fetch('/api/list')
+      const r=await fetch('/api/list',{headers:authHeaders()})
+      if(r.status===401){
+        needToken=true; token=''
+        try{ localStorage.removeItem('filo_token') }catch{}
+        progress='✕ Access token required'; setTimeout(()=>progress='',3000)
+        return
+      }
+      needToken=false
       const j=await r.json()
       docs=(j.docs||[]).filter(d=>isSafeId(d.id))
-    }catch(e){ progress='Failed to load' }
+    }catch(e){ progress='Failed to load'; setTimeout(()=>progress='',3000) }
     try{
-      const r=await fetch('/api/storage')
+      const r=await fetch('/api/storage',{headers:authHeaders()})
       const j=await r.json()
       if(j.total!=null) storage=j
     }catch{}
+  }
+  function saveToken(){
+    token=tokenInput.trim()
+    try{ token ? localStorage.setItem('filo_token',token) : localStorage.removeItem('filo_token') }catch{}
+    tokenInput=''
+    load()
   }
   $effect(()=>{ load() })
   function onPick(f){ if(!f){ picked=null; return } picked=f }
@@ -70,16 +78,26 @@
     fd.append('file', picked)
     if(title.trim()) fd.append('title', title.trim())
     try{
-      const r=await fetch('/api/upload',{method:'POST', body:fd})
-      const j=await r.json()
+      const r=await fetch('/api/upload',{method:'POST', body:fd, headers:authHeaders()})
+      const j=await r.json().catch(()=>({}))
+      if(r.status===401){ needToken=true; throw new Error('Access token required') }
       if(!r.ok) throw new Error(j.error||'Upload failed')
       result={ url: location.origin+'/p/'+j.id, filename:j.filename, size:j.size }
       progress='✓ Uploaded'; picked=null; if(fileInput) fileInput.value=''; title=''
       load(); setTimeout(()=>progress='',2000)
-    }catch(e){ progress='✕ '+(e.message||'Failed') }
+    }catch(e){ progress='✕ '+(e.message||'Failed'); setTimeout(()=>progress='',3000) }
   }
   async function copy(t){ try{ await navigator.clipboard.writeText(t) }catch{ prompt('Copy',t) } }
-  async function del(id){ if(!confirm('Delete '+id+'?')) return; await fetch('/api/delete/'+encodeURIComponent(id),{method:'DELETE'}); load() }
+  async function del(id){
+    if(!confirm('Delete '+id+'?')) return
+    try{
+      const r=await fetch('/api/delete/'+encodeURIComponent(id),{method:'DELETE', headers:authHeaders()})
+      const j=await r.json().catch(()=>({}))
+      if(r.status===401){ needToken=true; throw new Error('Access token required') }
+      if(!r.ok) throw new Error(j.error||'Delete failed')
+      load()
+    }catch(e){ progress='✕ '+(e.message||'Delete failed'); setTimeout(()=>progress='',3000) }
+  }
 </script>
 
 <div class="h-screen flex bg-[#fcfcfd] text-zinc-900 overflow-hidden">
@@ -108,18 +126,26 @@
       <div class="flex-1 max-w-[420px]">
         <input bind:value={q} placeholder="Search…" class="w-full px-3 py-2 rounded-full bg-zinc-100 border border-transparent focus:bg-white focus:border-zinc-900 focus:outline-none text-[13px]" />
       </div>
-      <div class="ml-auto hidden sm:block text-[12px] text-zinc-600">
-        {now.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric', year:'numeric'})} — {now.toLocaleTimeString('en-US',{hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false})}
-      </div>
+      {#if needToken}
+        <div class="ml-auto flex items-center gap-2">
+          <input bind:value={tokenInput} placeholder="Access token" type="password" onkeydown={(e)=>{if(e.key==='Enter')saveToken()}} class="px-3 py-2 rounded-full bg-zinc-100 border border-transparent focus:bg-white focus:border-zinc-900 focus:outline-none text-[13px] w-[180px]" />
+          <button onclick={saveToken} class="px-4 py-2 rounded-full bg-zinc-900 text-white text-[12px] font-bold">Save</button>
+        </div>
+      {:else}
+        <div class="ml-auto hidden sm:block text-[12px] text-zinc-600">
+          {now.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric', year:'numeric'})} — {now.toLocaleTimeString('en-US',{hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false})}
+        </div>
+      {/if}
     </header>
 
     <!-- content -->
     <div class="flex-1 min-h-0 overflow-auto p-4 md:p-6 space-y-6 bg-[#fcfcfd]">
-      <!-- upload -->
+      <!-- upload — one box split in two, drop as reference -->
       <div class="bg-white border border-zinc-200 rounded-[20px] overflow-hidden shadow-sm">
-        <div class="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-[1.1fr_.9fr] gap-6 items-center">
-          <div>
-            <h1 class="text-[22px] font-bold tracking-tight leading-none">Upload once,<br><span class="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">link forever.</span></h1>
+        <div class="p-5 md:p-6">
+          <h1 class="text-[22px] font-bold tracking-tight leading-none">Upload once,<br><span class="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">link forever.</span></h1>
+          <div class="mt-4 flex flex-col lg:flex-row gap-4">
+            <!-- left — drop reference -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <label
@@ -128,19 +154,19 @@
               ondragleave={(e)=>{e.preventDefault(); drag=false}}
               ondrop={(e)=>{e.preventDefault(); drag=false; const f=e.dataTransfer.files[0]; if(f) onPick(f)}}
               onclick={()=>fileInput?.click()}
-              class="mt-4 border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition flex flex-col items-center gap-2 {drag?'border-indigo-500 bg-indigo-50':'border-zinc-200 bg-zinc-50 hover:bg-white hover:border-zinc-900'}"
+              class="flex-1 border-2 border-dashed rounded-2xl h-[200px] flex flex-col justify-center items-center gap-2 text-center cursor-pointer transition {drag?'border-indigo-500 bg-indigo-50':'border-zinc-200 bg-zinc-50 hover:bg-white hover:border-zinc-900'}"
             >
               <div class="w-10 h-10 rounded-xl bg-white border shadow-sm grid place-items-center">⬆</div>
               <div class="text-[13px] font-bold">Drop file or click</div>
               <input bind:this={fileInput} type="file" class="hidden" onchange={(e)=>onPick(e.target.files[0])} />
             </label>
-          </div>
-          <div class="space-y-3">
-              <input bind:value={title} placeholder="Title" class="w-full px-3 py-2.5 rounded-xl border border-zinc-200 bg-zinc-50 focus:bg-white focus:border-zinc-900 outline-none text-[13px]" />
-            <button onclick={doUpload} disabled={!picked} class="w-full py-3 rounded-xl bg-zinc-900 text-white font-bold text-[13px] disabled:opacity-40 flex justify-center items-center gap-2 hover:bg-black">
-              {#if progress==='Uploading…'}<span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>{/if}
-              {picked ? `Upload ${picked.name.slice(0,18)}` : 'Upload'}
-            </button>
+            <!-- right — Title + Upload, same 200px, parallel -->
+            <div class="flex-1 h-[200px] flex flex-col justify-center gap-3">
+              <input bind:value={title} placeholder="Title" class="w-full h-[42px] px-3 border border-zinc-200 rounded-xl bg-zinc-50 focus:bg-white focus:border-zinc-900 outline-none text-[13px] shrink-0" />
+              <button onclick={doUpload} disabled={!picked} class="w-full h-[44px] rounded-xl bg-zinc-900 text-white font-bold text-[13px] disabled:opacity-40 flex justify-center items-center gap-2 hover:bg-black shrink-0">
+                {#if progress==='Uploading…'}<span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>{/if}
+                Upload
+              </button>
             {#if picked}
               <div class="flex items-center gap-2 text-[12px] p-2.5 rounded-xl bg-zinc-50 border">
                 <span>{fileIcon(picked.name)}</span>
@@ -159,6 +185,7 @@
                 </div>
               </div>
             {/if}
+            </div>
           </div>
         </div>
       </div>
@@ -203,3 +230,4 @@
     </div>
   </div>
 </div>
+
