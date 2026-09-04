@@ -11,6 +11,8 @@
  *   - set    → POST /api/upload, DELETE /api/delete/*, GET /api/list and
  *              GET /api/storage require header `x-upload-token: <token>`
  *              (or `Authorization: Bearer <token>`). GET /p/<id> stays public.
+ * Optional var MAX_STORAGE_MB: storage quota for the dashboard bar and the
+ * server-side upload check (default 10240 = the R2 free tier's 10GB).
  */
 
 const ID_LEN = 8;
@@ -82,20 +84,47 @@ function json(data, status = 200) {
   });
 }
 
-// constant-time-ish compare so tokens can't be guessed via timing
-function safeEqual(a, b) {
-  if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
+// constant-time compare: hash both sides with SHA-256 first — the fixed-length
+// digest hides the token's length and mismatch position, and the digest
+// comparison loop runs in constant time.
+async function safeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const enc = new TextEncoder();
+  const digest = async (s) =>
+    new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(s)));
+  const da = await digest(a);
+  const db = await digest(b);
+  if (da.length !== db.length) return false;
   let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  for (let i = 0; i < da.length; i++) diff |= da[i] ^ db[i];
   return diff === 0;
 }
 
-function authorized(req, env) {
+async function authorized(req, env) {
   const want = env.UPLOAD_TOKEN;
   if (!want) return true; // open mode — no secret configured
   const auth = req.headers.get("Authorization") || "";
   const got = auth.startsWith("Bearer ") ? auth.slice(7) : req.headers.get("x-upload-token") || "";
-  return safeEqual(got, want);
+  return await safeEqual(got, want);
+}
+
+// ---- storage quota (default = 10GB R2 free tier) -------------------------
+const DEFAULT_QUOTA_MB = 10 * 1024;
+function storageQuotaBytes(env) {
+  const mb = Number(env.MAX_STORAGE_MB);
+  return Number.isFinite(mb) && mb > 0 ? Math.floor(mb * 1024 * 1024) : DEFAULT_QUOTA_MB * 1024 * 1024;
+}
+function fmtMB(bytes) {
+  return (bytes / 1024 / 1024).toFixed(1).replace(/\.0$/, "");
+}
+// SUM(size) from D1, or null if it can't be read (quota check becomes advisory)
+async function usedBytes(env) {
+  try {
+    const row = await env.DB.prepare("SELECT COALESCE(SUM(size), 0) AS total FROM docs").first();
+    return row?.total ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function sanitizeFilename(filename) {
@@ -198,10 +227,19 @@ export default {
 
       const range = req.headers.get("Range");
       if (range) {
-        const m = range.match(/bytes=(\d+)-(\d*)/);
-        if (m) {
-          const start = parseInt(m[1], 10);
-          const end = m[2] ? parseInt(m[2], 10) : obj.size - 1;
+        // Single range only: "bytes=a-b", "bytes=a-", or suffix "bytes=-n"
+        const m = range.match(/^bytes=(\d*)-(\d*)$/);
+        if (m && (m[1] || m[2])) {
+          let start, end;
+          if (!m[1]) {
+            // suffix range: last n bytes
+            const n = parseInt(m[2], 10);
+            start = Math.max(0, obj.size - n);
+            end = obj.size - 1;
+          } else {
+            start = parseInt(m[1], 10);
+            end = m[2] ? parseInt(m[2], 10) : obj.size - 1;
+          }
           // Validate range
           if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= obj.size || end >= obj.size) {
             headers.set("Content-Range", `bytes */${obj.size}`);
@@ -226,21 +264,28 @@ export default {
       return new Response(obj.body, { headers });
     }
 
-    // API: Health — public (uptime checks)
+    // API: Health — public (uptime checks). `auth` lets the dashboard show
+    // its open-mode warning banner without an authenticated round-trip.
     if (path === "/api/health") {
-      return json({ ok: true, time: Date.now() });
+      return json({ ok: true, time: Date.now(), auth: Boolean(env.UPLOAD_TOKEN) });
     }
 
     // Everything below is the private API — token-gated when UPLOAD_TOKEN is set.
-    if (!authorized(req, env)) return json({ error: "Unauthorized" }, 401);
+    if (!(await authorized(req, env))) return json({ error: "Unauthorized" }, 401);
 
-    // API: List
+    // API: List — newest first, paginated via ?offset= (default 0).
+    // Returns `total` (true row count via COUNT(*) — cheap on D1) so the
+    // dashboard can show the real number of files and offer "Load more".
     if (path === "/api/list" && req.method === "GET") {
       try {
+        const offset = Math.max(0, Math.min(100000, parseInt(url.searchParams.get("offset") || "0", 10) || 0));
         const { results } = await env.DB.prepare(
-          "SELECT id, filename, size, uploaded_at, title, category FROM docs ORDER BY uploaded_at DESC LIMIT 200"
-        ).all();
-        return json({ docs: results || [] });
+          "SELECT id, filename, size, uploaded_at, title, category FROM docs ORDER BY uploaded_at DESC LIMIT 200 OFFSET ?"
+        )
+          .bind(offset)
+          .all();
+        const totalRow = await env.DB.prepare("SELECT COUNT(*) AS total FROM docs").first();
+        return json({ docs: results || [], total: totalRow?.total || 0, offset });
       } catch (e) {
         console.error("list failed:", e);
         return json({ error: "Failed to list files" }, 500);
@@ -263,10 +308,24 @@ export default {
       if (file.size === 0) return json({ error: "Empty file" }, 400);
       if (file.size > MAX_SIZE) return json({ error: `File too large. Max ${MAX_SIZE / 1024 / 1024}MB` }, 400);
 
-      const buf = await file.arrayBuffer();
+      // Reject before storing if this upload would blow past the quota
+      // (MAX_STORAGE_MB, default 10GB free tier). Soft cap: everything
+      // uploaded before the var was set still counts toward it.
+      const quota = storageQuotaBytes(env);
+      if (quota > 0) {
+        const usage = await usedBytes(env);
+        if (usage !== null && usage + file.size > quota) {
+          return json({ error: `Storage quota exceeded. ${fmtMB(quota - usage)}MB left of ${fmtMB(quota)}MB` }, 507);
+        }
+      }
+
+      // Only the first 2KB is buffered (for title sniffing); the File itself
+      // is handed straight to R2 below, so the worker never holds a second
+      // full copy of the body in memory.
+      const head = await file.slice(0, 2000).arrayBuffer();
       const titleInput = (form.get("title") || "").toString().slice(0, 200);
       const category = (form.get("category") || "").toString().slice(0, 100);
-      const filename = sanitizeFilename(autoFilename(file.name || "file", titleInput, buf));
+      const filename = sanitizeFilename(autoFilename(file.name || "file", titleInput, head));
       const contentType = guessContentType(filename, file.type);
       // Title keeps its spaces (shown in the dashboard); only the stored
       // filename is squished. No title → NULL, dashboard shows the filename.
@@ -299,7 +358,8 @@ export default {
 
       const key = `p/${id}`;
       try {
-        await env.BUCKET.put(key, buf, {
+        // Stream the File (a Blob) — no full copy of the body in worker memory
+        await env.BUCKET.put(key, file, {
           httpMetadata: { contentType },
           customMetadata: { filename, uploadedAt: String(Date.now()) },
         });
@@ -337,7 +397,11 @@ export default {
         const row = await env.DB
           .prepare("SELECT COALESCE(SUM(size), 0) AS total, COUNT(*) AS count FROM docs")
           .first();
-        return json({ total: row?.total || 0, count: row?.count || 0 });
+        return json({
+          total: row?.total || 0,
+          count: row?.count || 0,
+          quota: storageQuotaBytes(env), // bytes; UI shows the bar against this
+        });
       } catch (e) {
         console.error("storage failed:", e);
         return json({ error: "Failed to read storage stats" }, 500);

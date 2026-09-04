@@ -2,12 +2,15 @@
   let picked = $state(null)
   let title = $state('')
   let progress = $state('')
+  let pct = $state(-1)          // real upload % (XHR), -1 = not uploading
   let result = $state(null)
   let docs = $state([])
+  let total = $state(0)         // true file count from the server (not just the loaded page)
   let q = $state('')
   let drag = $state(false)
   let fileInput
   let needToken = $state(false)
+  let openMode = $state(false)   // server has no UPLOAD_TOKEN set
   let tokenInput = $state('')
   let token = ''
   try{ token = localStorage.getItem('filo_token') || '' }catch{}
@@ -21,7 +24,8 @@
   function fmtSize(b){
     if(b<1024) return b+' B'
     if(b<1024*1024) return (b/1024).toFixed(1)+' KB'
-    return (b/1024/1024).toFixed(2)+' MB'
+    if(b<1024*1024*1024) return (b/1024/1024).toFixed(2)+' MB'
+    return (b/1024/1024/1024).toFixed(2)+' GB'
   }
   function fmtDate(ts){ return new Date(ts).toLocaleDateString() }
   function isSafeId(id){ return /^[A-Za-z0-9]{6,12}$/.test(id) }
@@ -37,16 +41,17 @@
     return '📄'
   }
 
-  let storage = $state({ total:0, count:0 })
+  let storage = $state({ total:0, count:0, quota: 10*1024*1024*1024 }) // quota = server-configured (MAX_STORAGE_MB), default R2 free tier
   let filtered = $derived(docs.filter(d=>{
     if(!q) return true
     const hay=[d.filename,d.title,d.id].join(' ').toLowerCase()
     return hay.includes(q.toLowerCase())
   }))
 
-  async function load(){
+  async function load(reset=true){
     try{
-      const r=await fetch('/api/list',{headers:authHeaders()})
+      // reset=true → first page; reset=false → append the next 200 (Load more)
+      const r=await fetch(reset?'/api/list':`/api/list?offset=${docs.length}`,{headers:authHeaders()})
       if(r.status===401){
         needToken=true; token=''
         try{ localStorage.removeItem('filo_token') }catch{}
@@ -55,12 +60,20 @@
       }
       needToken=false
       const j=await r.json()
-      docs=(j.docs||[]).filter(d=>isSafeId(d.id))
+      const page=(j.docs||[]).filter(d=>isSafeId(d.id))
+      total=j.total||0
+      if(reset){ docs=page }
+      else{
+        // offset shifts as files come and go — dedupe by id when appending
+        const seen=new Set(docs.map(d=>d.id))
+        docs=[...docs, ...page.filter(d=>!seen.has(d.id))]
+        if(total<docs.length) total=docs.length
+      }
     }catch(e){ progress='Failed to load'; setTimeout(()=>progress='',3000) }
     try{
       const r=await fetch('/api/storage',{headers:authHeaders()})
       const j=await r.json()
-      if(j.total!=null) storage=j
+      if(j.total!=null) storage={ total:j.total, count:j.count||0, quota:j.quota||storage.quota }
     }catch{}
   }
   function saveToken(){
@@ -69,23 +82,42 @@
     tokenInput=''
     load()
   }
-  $effect(()=>{ load() })
+  $effect(()=>{ load(true) })
+  $effect(()=>{
+    // health is public and reports whether the token gate is on —
+    // lets us show the open-mode warning without an auth round-trip
+    fetch('/api/health').then(r=>r.json()).then(j=>{ openMode = j.auth===false }).catch(()=>{})
+  })
   function onPick(f){ if(!f){ picked=null; return } picked=f }
+  function uploadViaXHR(fd){
+    return new Promise((resolve,reject)=>{
+      const xhr=new XMLHttpRequest()
+      xhr.open('POST','/api/upload')
+      for(const [k,v] of Object.entries(authHeaders())) xhr.setRequestHeader(k,v)
+      xhr.upload.onprogress=(e)=>{ if(e.lengthComputable) pct=Math.round(e.loaded/e.total*100) }
+      xhr.onload=()=>{
+        let j={}
+        try{ j=JSON.parse(xhr.responseText) }catch{}
+        if(xhr.status===401){ needToken=true; return reject(new Error('Access token required')) }
+        if(xhr.status<200||xhr.status>=300) return reject(new Error(j.error||`Upload failed (HTTP ${xhr.status})`))
+        resolve(j)
+      }
+      xhr.onerror=()=>reject(new Error('Network error during upload'))
+      xhr.send(fd)
+    })
+  }
   async function doUpload(){
     if(!picked) return
-    progress='Uploading…'; result=null
+    progress='Uploading…'; pct=0; result=null
     const fd=new FormData()
     fd.append('file', picked)
     if(title.trim()) fd.append('title', title.trim())
     try{
-      const r=await fetch('/api/upload',{method:'POST', body:fd, headers:authHeaders()})
-      const j=await r.json().catch(()=>({}))
-      if(r.status===401){ needToken=true; throw new Error('Access token required') }
-      if(!r.ok) throw new Error(j.error||'Upload failed')
+      const j=await uploadViaXHR(fd)
       result={ url: location.origin+'/p/'+j.id, filename:j.filename, size:j.size }
       progress='✓ Uploaded'; picked=null; if(fileInput) fileInput.value=''; title=''
-      load(); setTimeout(()=>progress='',2000)
-    }catch(e){ progress='✕ '+(e.message||'Failed'); setTimeout(()=>progress='',3000) }
+      load(true); setTimeout(()=>{ progress=''; pct=-1 },2000)
+    }catch(e){ progress='✕ '+(e.message||'Failed'); setTimeout(()=>{ progress=''; pct=-1 },3000) }
   }
   async function copy(t){ try{ await navigator.clipboard.writeText(t) }catch{ prompt('Copy',t) } }
   async function del(id){
@@ -108,13 +140,13 @@
     </div>
     <nav class="p-3 flex-1 space-y-1">
       <div class="text-[11px] font-bold tracking-widest text-zinc-400 px-2 py-2">MENU</div>
-      <button onclick={()=>q=''} class="w-full text-left px-3 py-2 rounded-xl text-[13px] font-bold flex items-center gap-2 bg-zinc-900 text-white"><span>▦</span> All files <span class="ml-auto text-[11px] opacity-60">{docs.length}</span></button>
+      <button onclick={()=>q=''} class="w-full text-left px-3 py-2 rounded-xl text-[13px] font-bold flex items-center gap-2 bg-zinc-900 text-white"><span>▦</span> All files <span class="ml-auto text-[11px] opacity-60">{total}</span></button>
     </nav>
     <div class="p-3 border-t border-zinc-100">
       <div class="p-3 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white">
         <div class="text-[11px] opacity-80">Used</div>
-        <div class="text-[13px] font-bold">{(storage.total/1024/1024).toFixed(1)} MB / 10GB</div>
-        <div class="mt-2 h-1.5 rounded-full bg-white/20 overflow-hidden"><div class="h-full bg-white rounded-full" style="width: {Math.min(100, storage.total/1024/1024/10240*100)}%"></div></div>
+        <div class="text-[13px] font-bold">{fmtSize(storage.total)} / {fmtSize(storage.quota)}</div>
+        <div class="mt-2 h-1.5 rounded-full bg-white/20 overflow-hidden"><div class="h-full bg-white rounded-full" style="width: {Math.min(100, storage.total/storage.quota*100)}%"></div></div>
       </div>
     </div>
   </aside>
@@ -140,6 +172,12 @@
 
     <!-- content -->
     <div class="flex-1 min-h-0 overflow-auto p-4 md:p-6 space-y-6 bg-[#fcfcfd]">
+      {#if openMode && !needToken}
+        <div class="flex items-start gap-2 p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-[12px]">
+          <span class="shrink-0 mt-px">⚠</span>
+          <div>Open mode — anyone who finds this URL can upload or delete files. Set an <code class="font-mono text-[11px] bg-amber-100 px-1 rounded">UPLOAD_TOKEN</code> secret on the server to lock it down.</div>
+        </div>
+      {/if}
       <!-- upload — one box split in two, drop as reference -->
       <div class="bg-white border border-zinc-200 rounded-[20px] overflow-hidden shadow-sm">
         <div class="p-5 md:p-6">
@@ -164,9 +202,16 @@
             <div class="flex-1 h-[200px] flex flex-col justify-center gap-3">
               <input bind:value={title} placeholder="Title" class="w-full h-[42px] px-3 border border-zinc-200 rounded-xl bg-zinc-50 focus:bg-white focus:border-zinc-900 outline-none text-[13px] shrink-0" />
               <button onclick={doUpload} disabled={!picked} class="w-full h-[44px] rounded-xl bg-zinc-900 text-white font-bold text-[13px] disabled:opacity-40 flex justify-center items-center gap-2 hover:bg-black shrink-0">
-                {#if progress==='Uploading…'}<span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>{/if}
-                Upload
+                {#if progress==='Uploading…'}
+                  <span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  {#if pct>=0}<span>{pct}%</span>{:else}<span>Uploading…</span>{/if}
+                {:else}
+                  Upload
+                {/if}
               </button>
+              {#if progress==='Uploading…' && pct>=0}
+                <div class="h-1.5 rounded-full bg-zinc-100 overflow-hidden"><div class="h-full bg-indigo-600 rounded-full transition-all" style="width:{pct}%"></div></div>
+              {/if}
             {#if picked}
               <div class="flex items-center gap-2 text-[12px] p-2.5 rounded-xl bg-zinc-50 border">
                 <span>{fileIcon(picked.name)}</span>
@@ -226,6 +271,11 @@
             </tbody>
           </table>
         </div>
+        {#if total>docs.length}
+          <div class="p-3 border-t border-zinc-100 text-center">
+            <button onclick={()=>load(false)} class="px-4 py-2 rounded-full border border-zinc-300 bg-white text-[12px] font-bold hover:bg-zinc-50">Load more ({docs.length} of {total})</button>
+          </div>
+        {/if}
       </div>
     </div>
   </div>

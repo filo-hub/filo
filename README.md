@@ -30,9 +30,9 @@ No custom domain, no paid hosting, no manual HTML/JSON.
 
 ## How It Works
 
-* **Worker** (`worker.js`, synced to `public/_worker.js`): `POST /api/upload` validates any file (<25MB), detects `Content-Type`, allocates the id by inserting the D1 row first, then stores `p/<id>` in R2. `GET /p/:id` (and `HEAD`) streams from R2 with correct type + `Cache-Control: public, immutable` + `Content-Disposition` + `X-Content-Type-Options: nosniff` (legacy `p/<id>.pdf` still served, Range + ETag supported). `GET /api/storage` is a single `SUM(size)` query, not a bucket scan.
+* **Worker** (`worker.js`, synced to `public/_worker.js`): `POST /api/upload` validates any file (<25MB), detects `Content-Type`, streams the file to R2 without buffering a full second copy (only the first 2KB is read, to sniff a title), and allocates the id by inserting the D1 row first, then stores `p/<id>`. Uploads over the storage quota are rejected with HTTP 507 before anything is written. `GET /p/:id` (and `HEAD`) streams from R2 with correct type + `Cache-Control: public, immutable` + `Content-Disposition` + `X-Content-Type-Options: nosniff` (legacy `p/<id>.pdf` still served, full Range support incl. suffix `bytes=-N`, ETag). `GET /api/list` paginates (`?offset=`, 200/page) and returns the true `total`; `GET /api/storage` is a single `SUM(size)` query and returns the configured `quota`.
 * **D1** (`schema.sql`): `docs(id, filename, size, uploaded_at, title, category)`. `title` keeps its spaces; only the stored filename is squished.
-* **Frontend** (`src/App.svelte`, Svelte 5): drag-drop upload, progress, `GET /api/list` dashboard. If the server has a token configured, the dashboard shows a token prompt in the header and remembers it in `localStorage`.
+* **Frontend** (`src/App.svelte`, Svelte 5): drag-drop upload with real XHR progress %, `GET /api/list` dashboard with "Load more" pagination and true file count. If the server has a token configured, the dashboard shows a token prompt in the header and remembers it in `localStorage`; in open mode it shows a warning banner instead.
 
 ## Free Tier
 
@@ -43,12 +43,17 @@ No custom domain, no paid hosting, no manual HTML/JSON.
 ## Security
 
 * `GET /p/*` is public — that's the point (permanent shareable links).
-* **Token (optional, recommended):** without any config everything is open (single user, private URL). Set a token to lock the mutating/reading API:
+* **Token (optional, recommended):** without any config everything is open (single user, private URL) — the dashboard shows an amber "open mode" banner reminding you of this. Set a token to lock the mutating/reading API:
   ```bash
   npx wrangler secret put UPLOAD_TOKEN            # Worker
   npx wrangler pages secret put UPLOAD_TOKEN --project-name filo-hub   # Pages
   ```
-  When set, `POST /api/upload`, `DELETE /api/delete/:id`, `GET /api/list`, `GET /api/storage` require header `x-upload-token: <token>` (or `Authorization: Bearer <token>`). The dashboard picks it up automatically.
+  When set, `POST /api/upload`, `DELETE /api/delete/:id`, `GET /api/list`, `GET /api/storage` require header `x-upload-token: <token>` (or `Authorization: Bearer <token>`). The dashboard picks it up automatically. The token check hashes both sides (SHA-256) before comparing, so neither the token's length nor a mismatch position leaks through timing.
+* **Storage quota:** the dashboard bar and a server-side upload check use `MAX_STORAGE_MB` (default `10240` = the R2 free tier's 10GB):
+  ```bash
+  npx wrangler pages secret put MAX_STORAGE_MB --project-name filo-hub   # e.g. 2048 = 2GB
+  ```
+  Uploads that would exceed it are rejected with HTTP 507 *before* anything is written to R2.
 * **No cross-origin API:** CORS headers are never reflected, so other websites can't drive-by upload/delete from visitors' browsers. Files remain embeddable cross-origin via `<img>`/`<video>`/direct links (not CORS-gated).
 * **XSS hardened:** SVG/HTML and unknown types are served `Content-Disposition: attachment` (only images/video/audio/pdf/text/csv/json render inline) + `nosniff`, so uploaded files can never run script on the filo origin.
 * Validates 25MB limit (self-imposed; CF allows 100MB), sanitizes filenames for `Content-Disposition`, validates `x-forwarded-host` against host injection.

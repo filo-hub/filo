@@ -22,6 +22,8 @@ database_id = "351337b5-6315-4004-961d-af7faa7288ec"
 # If you want to protect upload/delete, re-add auth check in worker.js
 # [vars]
 # UPLOAD_TOKEN = "change-me"
+# Optional: storage quota for the dashboard bar + upload check (default 10240 = 10GB)
+# MAX_STORAGE_MB = 10240
 
 [observability]
 enabled = true
