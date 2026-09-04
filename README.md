@@ -79,7 +79,7 @@ CI runs tests on every push/PR and gates both deploys on them.
 ## GitHub Actions
 
 `.github/workflows/deploy.yml`:
-* **push to main** → `test` job, then deploy **both** the Worker and Pages (`filo-hub.pages.dev`) — Pages config comes from `wrangler.pages.toml` (no more toml-swap).
+* **push to main** → `test` job, then deploy **both** the Worker and Pages (`filo-hub.pages.dev`).
 * **PRs** → `test` job + a throwaway **Pages preview** at `pr-<n>.filo-hub.pages.dev`, commented on the PR. Previews share production bindings — never upload anything sensitive to one.
 
 Requires `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets.

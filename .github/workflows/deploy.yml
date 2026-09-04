@@ -46,7 +46,9 @@ jobs:
       - run: npm run build
       - run: npx wrangler deploy
       - name: Deploy to Pages (filo-hub.pages.dev — config from wrangler.pages.toml)
-        run: npx wrangler pages deploy dist --project-name filo-hub --branch main --config wrangler.pages.toml
+        run: |
+          cp wrangler.pages.toml wrangler.toml
+          npx wrangler pages deploy dist --project-name filo-hub --branch main
 
   preview:
     name: Pages preview (PR)
@@ -66,7 +68,9 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Deploy PR preview
-        run: npx wrangler pages deploy dist --project-name filo-hub --branch "pr-${{ github.event.number }}" --config wrangler.pages.toml
+        run: |
+          cp wrangler.pages.toml wrangler.toml
+          npx wrangler pages deploy dist --project-name filo-hub --branch "pr-${{ github.event.number }}"
       - name: Comment preview URL
         uses: actions/github-script@v7
         with:

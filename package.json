@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler deploy",
-    "deploy:pages": "npm run build && wrangler pages deploy dist --project-name filo-hub --branch main --config wrangler.pages.toml",
+    "deploy:pages": "npm run build && cp wrangler.toml .wrangler.worker.toml && cp wrangler.pages.toml wrangler.toml && wrangler pages deploy dist --project-name filo-hub --branch main; mv .wrangler.worker.toml wrangler.toml",
     "db:migrate": "wrangler d1 migrations apply filo-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply filo-db --remote",
     "db:migrate:old": "wrangler d1 execute filo-db --file=./migrations/0001_docs.sql",
