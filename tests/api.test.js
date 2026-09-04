@@ -86,8 +86,17 @@ describe("upload", () => {
 
 describe("list", () => {
   it("paginates 200/page with a true total and no overlap", async () => {
+    const stmts = [];
     for (let i = 0; i < 205; i++) {
-      await upload(makeFile(`file ${i} body`, `f${i}.txt`), { title: `File ${i}` });
+      const id = String(i).padStart(8, "0");
+      stmts.push(
+        env.DB.prepare(
+          "INSERT INTO docs (id, filename, size, uploaded_at, title) VALUES (?, ?, ?, ?, ?)"
+        ).bind(id, `f${i}.txt`, 100, 1000000 + i, `File ${i}`)
+      );
+    }
+    for (let i = 0; i < stmts.length; i += 50) {
+      await env.DB.batch(stmts.slice(i, i + 50));
     }
     const p1 = await (await fetch("https://example.com/api/list")).json();
     expect(p1.docs.length).toBe(200);
