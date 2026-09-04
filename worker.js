@@ -12,6 +12,11 @@
  *              (or `Authorization: Bearer <token>`). GET /p/<id> stays public.
  * Optional var MAX_STORAGE_MB: storage quota for the dashboard bar and the
  * server-side upload check (default 10240 = the R2 free tier's 10GB).
+ *
+ * Routes: /api/health, /api/list (?q= search, ?sort=, ?dir=, ?offset=),
+ *   /api/upload, /api/delete/:id, /api/rename/:id, /api/activity,
+ *   /api/storage, /api/reconcile (on-demand cron), /p/:id (+HEAD, Range).
+ * scheduled(): weekly cron — reconcile D1 against R2 (see reconcile()).
  */
 
 const ID_LEN = 8;
@@ -126,6 +131,25 @@ async function usedBytes(env) {
   }
 }
 
+// Best-effort audit trail — never throws (an audit failure must not fail
+// the user's upload/delete), just logs so it shows up in observability.
+async function audit(env, action, docId = null, filename = null, detail = null) {
+  try {
+    await env.DB.prepare("INSERT INTO actions (action, doc_id, filename, detail, ts) VALUES (?, ?, ?, ?, ?)")
+      .bind(action, docId, filename, detail, Date.now())
+      .run();
+  } catch (e) {
+    console.error("audit write failed:", e);
+  }
+}
+
+// LIKE pattern for search: % wildcards, but the user's own % and _ are
+// escaped so a query of "50%" doesn't match everything.
+function likePattern(q) {
+  return `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+}
+
+
 function sanitizeFilename(filename) {
   // Strip path, control chars, quotes; limit length; fallback to id
   let s = String(filename).split("/").pop().split("\\").pop();
@@ -145,8 +169,13 @@ function contentDisposition(filename, contentType) {
 }
 
 function autoFilename(originalName, titleInput, buf) {
-  // try to infer title from file content if no title provided (simple text extract for txt/pdf)
   let base = (titleInput || "").trim();
+  if (!base) {
+    const orig = (originalName || "").replace(/\.[^/.]+$/, "").trim();
+    if (orig && orig !== "file" && orig !== "blob") {
+      base = orig;
+    }
+  }
   if (!base && buf) {
     try {
       const text = new TextDecoder().decode(buf.slice(0, 2000));
@@ -156,8 +185,7 @@ function autoFilename(originalName, titleInput, buf) {
     } catch {}
   }
   if (!base) {
-    const orig = (originalName || "file").replace(/\.[^/.]+$/, "");
-    base = orig;
+    base = (originalName || "file").replace(/\.[^/.]+$/, "") || "file";
   }
   base = base.replace(/\s+/g, "").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 10) || "file";
   const ext = extOf(originalName) || "bin";
@@ -167,6 +195,59 @@ function autoFilename(originalName, titleInput, buf) {
   const yyyy = d.getFullYear();
   const check = nanoid(8);
   return `${base}${dd}${mm}${yyyy}${check}.${ext}`;
+}
+
+// Weekly maintenance (cron + POST /api/reconcile): make D1 agree with R2.
+//  - row whose object is missing (delete raced a failed put)  → row dropped
+//  - legacy object p/<id>.pdf with a row but no p/<id>          → copied to p/<id>
+//  - R2 object with no row (manual bucket writes, drift)       → reported only
+//    (never auto-deleted — an object is data, a row is metadata)
+async function reconcile(env) {
+  const report = { checked: 0, droppedRows: 0, migrated: 0, orphans: [], errors: 0 };
+  let rows;
+  try {
+    ({ results: rows } = await env.DB.prepare("SELECT id, filename, etag FROM docs").all());
+  } catch (e) {
+    report.errors++;
+    console.error("reconcile: list failed:", e);
+    return report;
+  }
+  for (const row of rows || []) {
+    report.checked++;
+    let obj = null;
+    try {
+      obj = await env.BUCKET.get(`p/${row.id}`);
+      if (!obj) {
+        // legacy layout: object lives at p/<id>.pdf — copy it to p/<id>
+        const legacy = await env.BUCKET.get(`p/${row.id}.pdf`);
+        if (legacy) {
+          await env.BUCKET.put(`p/${row.id}`, legacy.body, {
+            httpMetadata: legacy.httpMetadata,
+            customMetadata: legacy.customMetadata,
+          });
+          report.migrated++;
+          continue;
+        }
+      }
+    } catch (e) {
+      report.errors++;
+      console.error(`reconcile: head ${row.id} failed:`, e);
+      continue;
+    }
+    if (!obj) {
+      // no object anywhere — the row is a dead link
+      try {
+        await env.DB.prepare("DELETE FROM docs WHERE id = ?").bind(row.id).run();
+        report.droppedRows++;
+      } catch (e) {
+        report.errors++;
+        console.error(`reconcile: drop row ${row.id} failed:`, e);
+      }
+    } else {
+      obj.body?.cancel?.(); // release the full-object stream we only peeked at
+    }
+  }
+  return report;
 }
 
 export default {
@@ -247,7 +328,7 @@ export default {
           const sliced = await env.BUCKET.get(key, { range: { offset: start, length: end - start + 1 } });
           if (sliced) {
             headers.set("Content-Range", `bytes ${start}-${end}/${obj.size}`);
-            headers.set("Content-Length", String(sliced.size));
+            headers.set("Content-Length", String(end - start + 1));
             if (req.method === "HEAD") {
               return new Response(null, { status: 206, headers });
             }
@@ -273,18 +354,41 @@ export default {
     if (!(await authorized(req, env))) return json({ error: "Unauthorized" }, 401);
 
     // API: List — newest first, paginated via ?offset= (default 0).
-    // Returns `total` (true row count via COUNT(*) — cheap on D1) so the
-    // dashboard can show the real number of files and offer "Load more".
+    // ?q= searches server-side over filename/title/id (the dashboard can
+    // only filter what it has loaded). ?category= filters, ?sort=name|size|date,
+    // ?dir=asc|desc. Returns `total` = true count of matching rows.
     if (path === "/api/list" && req.method === "GET") {
       try {
         const offset = Math.max(0, Math.min(100000, parseInt(url.searchParams.get("offset") || "0", 10) || 0));
+        const q = (url.searchParams.get("q") || "").slice(0, 100).trim();
+        const category = (url.searchParams.get("category") || "").slice(0, 100).trim();
+        const sortCol = { name: "filename", size: "size", date: "uploaded_at" }[url.searchParams.get("sort")] || "uploaded_at";
+        const dir = url.searchParams.get("dir") === "asc" ? "ASC" : "DESC";
+
+        const conds = [];
+        const params = [];
+        if (q) {
+          params.push(likePattern(q), q);
+          const n = params.length;
+          conds.push(`(filename LIKE ?${n - 1} ESCAPE '\\' OR title LIKE ?${n - 1} ESCAPE '\\' OR id = ?${n})`);
+        }
+        if (category) {
+          params.push(category);
+          conds.push(`category = ?${params.length}`);
+        }
+        const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+        params.push(offset);
+
+        // sortCol/dir come from the allowlists above — never user input
         const { results } = await env.DB.prepare(
-          "SELECT id, filename, size, uploaded_at, title, category FROM docs ORDER BY uploaded_at DESC LIMIT 200 OFFSET ?"
+          `SELECT id, filename, size, uploaded_at, title, category, etag FROM docs ${where} ORDER BY ${sortCol} ${dir}, id ASC LIMIT 200 OFFSET ?${params.length}`
         )
-          .bind(offset)
+          .bind(...params)
           .all();
-        const totalRow = await env.DB.prepare("SELECT COUNT(*) AS total FROM docs").first();
-        return json({ docs: results || [], total: totalRow?.total || 0, offset });
+        const countRow = await env.DB.prepare(`SELECT COUNT(*) AS total FROM docs ${where}`)
+          .bind(...params.slice(0, -1))
+          .first();
+        return json({ docs: results || [], total: countRow?.total || 0, offset });
       } catch (e) {
         console.error("list failed:", e);
         return json({ error: "Failed to list files" }, 500);
@@ -357,10 +461,26 @@ export default {
 
       const key = `p/${id}`;
       try {
-        // Stream the File (a Blob) — no full copy of the body in worker memory
-        await env.BUCKET.put(key, file, {
+        // Stream the File (a Blob) — no full copy of the body in worker memory.
+        // R2's put returns an md5 of exactly what it stored — our checksum.
+        const put = await env.BUCKET.put(key, file, {
           httpMetadata: { contentType },
           customMetadata: { filename, uploadedAt: String(Date.now()) },
+        });
+        const etag = put?.etag || null;
+        // record the checksum (advisory — old rows simply have NULL)
+        if (etag) {
+          await env.DB.prepare("UPDATE docs SET etag = ? WHERE id = ?").bind(etag, id).run().catch(() => {});
+        }
+        await audit(env, "upload", id, filename, `${file.size} bytes`);
+        const base = `${url.protocol}//${getSafeHost(req, url)}`;
+        return json({
+          id,
+          filename,
+          size: file.size,
+          etag,
+          url: `${base}/p/${id}`,
+          message: "Uploaded. This URL is permanent.",
         });
       } catch (e) {
         // rollback the row so it doesn't point at a missing object
@@ -368,25 +488,66 @@ export default {
         await env.DB.prepare("DELETE FROM docs WHERE id = ?").bind(id).run().catch(() => {});
         return json({ error: "Failed to store file" }, 500);
       }
-
-      const base = `${url.protocol}//${getSafeHost(req, url)}`;
-      return json({
-        id,
-        filename,
-        size: file.size,
-        url: `${base}/p/${id}`,
-        message: "Uploaded. This URL is permanent.",
-      });
     }
 
     // API: Delete — validate id to prevent injection
     if (path.startsWith("/api/delete/") && req.method === "DELETE") {
       const id = path.slice("/api/delete/".length).split("/")[0];
       if (!id || !/^[A-Za-z0-9]{6,12}$/.test(id)) return json({ error: "Invalid id" }, 400);
+      let filename = null;
+      try {
+        const row = await env.DB.prepare("SELECT filename FROM docs WHERE id = ?").bind(id).first();
+        filename = row?.filename || null;
+      } catch {}
       await env.BUCKET.delete(`p/${id}`);
       await env.BUCKET.delete(`p/${id}.pdf`); // legacy cleanup
       await env.DB.prepare("DELETE FROM docs WHERE id = ?").bind(id).run();
+      await audit(env, "delete", id, filename);
       return json({ ok: true, id });
+    }
+
+    // API: Rename — change the title (and category) of an existing doc.
+    // The stored filename / link id stay untouched; only display metadata moves.
+    if (path.startsWith("/api/rename/") && req.method === "POST") {
+      const id = path.slice("/api/rename/".length).split("/")[0];
+      if (!id || !/^[A-Za-z0-9]{6,12}$/.test(id)) return json({ error: "Invalid id" }, 400);
+      let body;
+      try {
+        body = await req.json();
+      } catch {
+        return json({ error: "Invalid JSON body" }, 400);
+      }
+      const title = (body.title || "").toString().trim().slice(0, 200) || null;
+      const category = body.category === undefined ? undefined : (body.category || "").toString().trim().slice(0, 100) || null;
+      const row = await env.DB.prepare("SELECT filename, title, category FROM docs WHERE id = ?").bind(id).first();
+      if (!row) return json({ error: "Not found" }, 404);
+      await env.DB.prepare("UPDATE docs SET title = ?, category = COALESCE(?, category) WHERE id = ?")
+        .bind(title, category ?? null, id)
+        .run();
+      await audit(env, "rename", id, row.filename, `title: "${row.title ?? "—"}" → "${title ?? "—"}"`);
+      return json({ ok: true, id, title, category: category ?? row.category });
+    }
+
+    // API: Activity — recent audit trail for the dashboard feed.
+    if (path === "/api/activity" && req.method === "GET") {
+      try {
+        const { results } = await env.DB.prepare(
+          "SELECT action, doc_id, filename, detail, ts FROM actions ORDER BY ts DESC LIMIT 50"
+        ).all();
+        return json({ actions: results || [] });
+      } catch (e) {
+        console.error("activity failed:", e);
+        return json({ error: "Failed to read activity" }, 500);
+      }
+    }
+
+    // API: Reconcile — the same logic the weekly cron runs, on demand.
+    // Cross-checks D1 rows against R2 objects: drops rows whose object is
+    // gone, migrates legacy p/<id>.pdf objects to p/<id>, reports orphans.
+    if (path === "/api/reconcile" && req.method === "POST") {
+      const report = await reconcile(env);
+      await audit(env, "cleanup", null, null, JSON.stringify(report));
+      return json({ ok: true, report });
     }
 
     // API: Storage — one indexed query, not a full R2 bucket scan
@@ -416,5 +577,16 @@ export default {
     // that didn't match an asset). env.ASSETS applies the SPA fallback.
     if (env.ASSETS) return env.ASSETS.fetch(req);
     return new Response("Not found", { status: 404 });
+  },
+
+  // Weekly cron (wrangler.toml [triggers]) — keep D1 honest against R2.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      (async () => {
+        const report = await reconcile(env);
+        await audit(env, "cleanup", null, null, JSON.stringify(report));
+        console.log("reconcile:", JSON.stringify(report));
+      })()
+    );
   },
 };

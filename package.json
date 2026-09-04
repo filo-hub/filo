@@ -10,18 +10,24 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "npm run build && wrangler deploy",
-    "deploy:pages": "npm run build && wrangler pages deploy dist --project-name filo-hub --branch main",
-    "db:create": "wrangler d1 create filo-db",
-    "db:migrate": "wrangler d1 execute filo-db --file=./schema.sql",
+    "deploy:pages": "npm run build && wrangler pages deploy dist --project-name filo-hub --branch main --config wrangler.pages.toml",
+    "db:migrate": "wrangler d1 migrations apply filo-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply filo-db --remote",
+    "db:migrate:old": "wrangler d1 execute filo-db --file=./migrations/0001_docs.sql",
+    "cron:local": "curl -s \"http://localhost:8787/__scheduled?cron=0+6+*+*+1\" | head -c 2000",
     "r2:create": "wrangler r2 bucket create filo-files",
-    "secret:token": "wrangler secret put UPLOAD_TOKEN"
+    "secret:token": "wrangler secret put UPLOAD_TOKEN",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.9.7",
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
     "autoprefixer": "^10.5.4",
     "postcss": "^8.5.26",
     "tailwindcss": "^3.4.19",
     "vite": "^8.2.2",
+    "vitest": "^3.2.4",
     "wrangler": "^4.128.0"
   },
   "dependencies": {

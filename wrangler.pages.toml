@@ -1,0 +1,18 @@
+# Pages config for filo-hub.pages.dev — used ONLY by CI (and deploy:pages)
+# via `wrangler pages deploy --config wrangler.pages.toml`.
+# The toml-swap dance this replaces was brittle: it overwrote the worker
+# config in-place and hardcoded bindings in a heredoc that could drift.
+name = "filo-hub"
+compatibility_date = "2025-11-01"
+pages_build_output_dir = "./dist"
+
+# Must mirror wrangler.toml's bindings — worker.js is the same file.
+# (Pages does not read [assets]/[triggers]; _worker.js + dist handle that.)
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "filo-files"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "filo-db"
+database_id = "351337b5-6315-4004-961d-af7faa7288ec"

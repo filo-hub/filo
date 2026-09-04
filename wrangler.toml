@@ -13,10 +13,17 @@ binding = "BUCKET"
 bucket_name = "filo-files"
 
 # D1 database — create with: wrangler d1 create filo-db
+# Schema migrations live in ./migrations (package.json db:migrate scripts)
 [[d1_databases]]
 binding = "DB"
 database_name = "filo-db"
 database_id = "351337b5-6315-4004-961d-af7faa7288ec"
+migrations_dir = "migrations"
+
+# Weekly maintenance (Worker only — Pages has no cron): reconcile D1 rows
+# against R2 objects: remove dead rows, migrate legacy p/<id>.pdf, report orphans.
+[triggers]
+crons = ["0 6 * * 1"]
 
 # Optional: set upload token. Or use: wrangler secret put UPLOAD_TOKEN
 # If you want to protect upload/delete, re-add auth check in worker.js

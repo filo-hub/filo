@@ -1,0 +1,17 @@
+# Test-only worker config for @cloudflare/vitest-pool-workers.
+# Mirrors wrangler.toml's bindings but drops [assets] (dist/ isn't built
+# when tests run) and [triggers] (no cron in tests). Keep binding names
+# in sync with wrangler.toml.
+name = "filo-test"
+main = "../worker.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "filo-files"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "filo-db"
+database_id = "test"
