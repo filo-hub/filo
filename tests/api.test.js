@@ -184,6 +184,32 @@ describe("rename", () => {
     });
     expect(bad.status).toBe(400);
   });
+
+  it("clears the category when an empty string is sent", async () => {
+    const j = await (await upload(makeFile("keep"), "c.txt", { category: "work" })).json();
+    const r = await fetch(`https://example.com/api/rename/${j.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "New Title", category: "" }),
+    });
+    expect(r.status).toBe(200);
+    const row = await env.DB.prepare("SELECT title, category FROM docs WHERE id = ?").bind(j.id).first();
+    expect(row.title).toBe("New Title");
+    expect(row.category).toBeNull();
+  });
+
+  it("omitting category leaves the existing category untouched", async () => {
+    const j = await (await upload(makeFile("keep"), { category: "work" })).json();
+    const r = await fetch(`https://example.com/api/rename/${j.id}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "New Title" }),
+    });
+    expect(r.status).toBe(200);
+    const row = await env.DB.prepare("SELECT title, category FROM docs WHERE id = ?").bind(j.id).first();
+    expect(row.title).toBe("New Title");
+    expect(row.category).toBe("work");
+  });
 });
 
 describe("activity", () => {

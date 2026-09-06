@@ -76,7 +76,8 @@
 
   // ---- data loading -----------------------------------------------------------
   let storage = $state({ total:0, count:0, quota: 10*1024*1024*1024 })
-  let cats = $derived([...new Set(docs.map(d=>d.category).filter(Boolean))])
+  let allCats = $state(new Set())
+  let cats = $derived([...allCats].sort())
 
   function listUrl(offset){
     const p=new URLSearchParams()
@@ -105,6 +106,11 @@
         const seen=new Set(docs.map(d=>d.id))
         docs=[...docs, ...page.filter(d=>!seen.has(d.id))]
         if(total<docs.length) total=docs.length
+      }
+      if(!q && !cat && reset){
+        allCats = new Set(page.map(d=>d.category).filter(Boolean))
+      } else {
+        for(const d of page){ if(d.category) allCats.add(d.category) }
       }
     }catch{ notice='Failed to load'; setTimeout(()=>notice='',3000) }
     finally{ loading=false }
@@ -171,14 +177,16 @@
     const batch=[...queue]
     let ok=0, failed=0, firstErr=null
     for(let i=0;i<batch.length;i++){
+      const fileToUpload = batch[i]
       const fd=new FormData()
-      fd.append('file', batch[i])
+      fd.append('file', fileToUpload)
       if(title.trim()) fd.append('title', title.trim())
       if(category.trim()) fd.append('category', category.trim())
       try{
         const j=await uploadViaXHR(fd,(fp)=>{ pct=Math.round(((i+fp/100)/batch.length)*100) })
         results=[...results, { url: location.origin+'/p/'+j.id, filename:j.filename, size:j.size, etag:j.etag }]
         ok++
+        queue = queue.filter(f => f !== fileToUpload)
       }catch(e){
         if(e.message==='Cancelled') break
         if(e.message==='Access token required'){ firstErr=e.message; break } // stop the batch
@@ -187,7 +195,7 @@
       }
     }
     uploading=false; pct=-1; currentXhr=null
-    if(ok){ queue=[]; if(fileInput) fileInput.value=''; title='' }
+    if(!queue.length){ if(fileInput) fileInput.value=''; title='' }
     const summary=[ok?`✓ ${ok} uploaded`:'', failed?`✕ ${failed} failed`:'', firstErr?`✕ ${firstErr}`:''].filter(Boolean).join(' — ')
     notice=summary||'✓ Uploaded'; setTimeout(()=>notice='',4000)
     load(true)
@@ -323,19 +331,23 @@
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-            <label
-              ondragover={(e)=>{e.preventDefault(); drag=true}}
-              ondragenter={(e)=>{e.preventDefault(); drag=true}}
-              ondragleave={(e)=>{e.preventDefault(); drag=false}}
-              ondrop={(e)=>{e.preventDefault(); drag=false; addFiles(e.dataTransfer.files)}}
+            <div
+              ondragover={(e)=>{e.preventDefault(); e.stopPropagation(); drag=true}}
+              ondragenter={(e)=>{e.preventDefault(); e.stopPropagation(); drag=true}}
+              ondragleave={(e)=>{if(e.currentTarget===e.target){drag=false}}}
+              ondrop={(e)=>{e.preventDefault(); e.stopPropagation(); drag=false; addFiles(e.dataTransfer.files)}}
               onclick={()=>fileInput?.click()}
-              class="flex-1 border-2 border-dashed rounded-2xl p-4 min-h-[200px] flex flex-col justify-center items-center gap-2 text-center cursor-pointer transition {drag?'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40':'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-white dark:hover:bg-zinc-800 hover:border-zinc-900 dark:hover:border-zinc-400'}"
+              onkeydown={(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault(); fileInput?.click()}}}
+              tabindex="0"
+              role="button"
+              aria-label="Upload files: drop, click, or paste"
+              class="flex-1 border-2 border-dashed rounded-2xl p-4 min-h-[200px] flex flex-col justify-center items-center gap-2 text-center cursor-pointer transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 {drag?'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40':'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-white dark:hover:bg-zinc-800 hover:border-zinc-900 dark:hover:border-zinc-400'}"
             >
               <div class="w-10 h-10 rounded-xl bg-white dark:bg-zinc-900 border shadow-sm grid place-items-center">⬆</div>
               <div class="text-[13px] font-bold">Drop files, click, or paste</div>
               <div class="text-[11px] text-zinc-500 dark:text-zinc-400">any type · up to 25MB each</div>
               <input bind:this={fileInput} type="file" multiple class="hidden" onchange={(e)=>{addFiles(e.target.files); e.target.value=''}} />
-            </label>
+            </div>
             <!-- right — title/category + upload -->
             <div class="flex-1 min-h-[200px] flex flex-col justify-center gap-3">
               <input bind:value={title} placeholder="Title (optional)" class="w-full h-[42px] px-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 focus:bg-white dark:focus:bg-zinc-900 focus:border-zinc-900 dark:focus:border-zinc-100 outline-none text-[13px] shrink-0" />

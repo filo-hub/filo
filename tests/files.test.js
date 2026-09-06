@@ -41,6 +41,28 @@ describe("GET /p/:id", () => {
     await r.text();
   });
 
+  it("serves SVG as attachment even when the browser lies about the MIME parameter", async () => {
+    // SVG content uploaded with a fake MIME parameter — the worker must
+    // normalize and still refuse to render it inline (stored XSS).
+    const id = await resetAndUpload('<svg onload="alert(1)"></svg>', "evil.svg", "image/svg+xml; charset=utf-8");
+    const r = await fetch(`https://example.com/p/${id}`);
+    expect(r.headers.get("Content-Type")).toBe("image/svg+xml");
+    expect(r.headers.get("Content-Disposition")).toMatch(/^attachment/);
+    await r.text();
+  });
+
+  it("serves HTML and unknown types as attachment", async () => {
+    const htmlId = await resetAndUpload('<script>alert(1)</script>', "evil.html", "text/html");
+    let r = await fetch(`https://example.com/p/${htmlId}`);
+    expect(r.headers.get("Content-Disposition")).toMatch(/^attachment/);
+    await r.text();
+
+    const binId = await resetAndUpload("binary", "blob.bin", "application/octet-stream");
+    r = await fetch(`https://example.com/p/${binId}`);
+    expect(r.headers.get("Content-Disposition")).toMatch(/^attachment/);
+    await r.text();
+  });
+
   it("serves images/pdf/text inline", async () => {
     const id = await resetAndUpload("x".repeat(8), "pic.png", "image/png");
     const r = await fetch(`https://example.com/p/${id}`);
@@ -114,6 +136,23 @@ describe("Range requests", () => {
     const r = await fetch(`https://example.com/p/${id}`, { headers: { Range: "bytes=a-b" } });
     expect(r.status).toBe(200);
     expect(await r.text()).toBe(BODY);
+  });
+
+  it("HEAD with a Range returns 206 headers without a body", async () => {
+    const id = await resetAndUpload();
+    const r = await fetch(`https://example.com/p/${id}`, { method: "HEAD", headers: { Range: "bytes=2-9" } });
+    expect(r.status).toBe(206);
+    expect(r.headers.get("Content-Range")).toBe(`bytes 2-9/${BODY.length}`);
+    expect(r.headers.get("Content-Length")).toBe("8");
+    expect(r.body).toBe(null);
+  });
+
+  it("clamps an over-long Range to the end of the file (RFC 9110)", async () => {
+    const id = await resetAndUpload();
+    const r = await fetch(`https://example.com/p/${id}`, { headers: { Range: "bytes=15-9999" } });
+    expect(r.status).toBe(206);
+    expect(r.headers.get("Content-Range")).toBe(`bytes 15-${BODY.length - 1}/${BODY.length}`);
+    expect(await r.text()).toBe(BODY.slice(15));
   });
 });
 

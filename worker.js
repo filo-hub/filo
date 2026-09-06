@@ -27,24 +27,46 @@ const MAX_SIZE = 25 * 1024 * 1024; // self-imposed limit (CF Workers allows up t
 const MIME_MAP = {
   pdf: "application/pdf",
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
-  mp4: "video/mp4", mp3: "audio/mpeg", wav: "audio/wav", zip: "application/zip",
+  avif: "image/avif", bmp: "image/bmp", ico: "image/x-icon", tiff: "image/tiff", tif: "image/tiff",
+  mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime", mkv: "video/x-matroska",
+  mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4", flac: "audio/flac", aac: "audio/aac",
+  zip: "application/zip", tar: "application/x-tar", gz: "application/gzip", "7z": "application/x-7z-compressed", rar: "application/vnd.rar",
   doc: "application/msword", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   xls: "application/vnd.ms-excel", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ppt: "application/vnd.ms-powerpoint", pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  txt: "text/plain", csv: "text/csv", json: "application/json",
+  txt: "text/plain", csv: "text/csv", json: "application/json", md: "text/markdown", markdown: "text/markdown",
+  xml: "application/xml", yaml: "text/yaml", yml: "text/yaml",
+  woff: "font/woff", woff2: "font/woff2", ttf: "font/ttf", otf: "font/otf",
 };
 
 // Types the browser may render inline. SVG and HTML are deliberately excluded:
 // served inline on our own origin they run script with dashboard access
 // (stored XSS). Anything not listed is forced to download instead.
-const INLINE_TYPES = new Set(["application/pdf", "text/plain", "text/csv", "application/json"]);
+const INLINE_TYPES = new Set([
+  "application/pdf",
+  "text/plain",
+  "text/csv",
+  "application/json",
+  "text/markdown",
+]);
 function isInlineType(type) {
-  if (type === "image/svg+xml") return false;
+  if (!type || typeof type !== "string") return false;
+  const mime = type.split(";")[0].trim().toLowerCase();
+  if (
+    mime === "image/svg+xml" ||
+    mime === "text/html" ||
+    mime === "application/xhtml+xml" ||
+    mime === "text/xml" ||
+    mime === "application/xml"
+  ) {
+    return false;
+  }
   return (
-    type.startsWith("image/") ||
-    type.startsWith("video/") ||
-    type.startsWith("audio/") ||
-    INLINE_TYPES.has(type)
+    mime.startsWith("image/") ||
+    mime.startsWith("video/") ||
+    mime.startsWith("audio/") ||
+    mime.startsWith("font/") ||
+    INLINE_TYPES.has(mime)
   );
 }
 
@@ -63,7 +85,10 @@ function extOf(filename) {
   return m ? m[1] : "";
 }
 function guessContentType(filename, provided) {
-  if (provided && provided !== "application/octet-stream" && provided !== "") return provided;
+  if (provided) {
+    const mime = provided.split(";")[0].trim().toLowerCase();
+    if (mime && mime !== "application/octet-stream") return mime;
+  }
   const ext = extOf(filename);
   return MIME_MAP[ext] || "application/octet-stream";
 }
@@ -151,9 +176,9 @@ function likePattern(q) {
 
 
 function sanitizeFilename(filename) {
-  // Strip path, control chars, quotes; limit length; fallback to id
-  let s = String(filename).split("/").pop().split("\\").pop();
-  s = s.replace(/[\r\n"]/g, "").replace(/[\x00-\x1f\x7f]/g, "").trim();
+  // Strip path, control chars, quotes, backslashes; limit length; fallback to "file"
+  let s = String(filename || "").split("/").pop().split("\\").pop();
+  s = s.replace(/[\r\n"\\;]/g, "").replace(/[\x00-\x1f\x7f]/g, "").trim();
   if (!s) s = "file";
   if (s.length > 200) s = s.slice(0, 200);
   return s;
@@ -212,11 +237,13 @@ async function reconcile(env) {
     console.error("reconcile: list failed:", e);
     return report;
   }
+  const rowIdSet = new Set();
   for (const row of rows || []) {
+    rowIdSet.add(row.id);
     report.checked++;
     let obj = null;
     try {
-      obj = await env.BUCKET.get(`p/${row.id}`);
+      obj = await env.BUCKET.head(`p/${row.id}`);
       if (!obj) {
         // legacy layout: object lives at p/<id>.pdf — copy it to p/<id>
         const legacy = await env.BUCKET.get(`p/${row.id}.pdf`);
@@ -243,10 +270,30 @@ async function reconcile(env) {
         report.errors++;
         console.error(`reconcile: drop row ${row.id} failed:`, e);
       }
-    } else {
-      obj.body?.cancel?.(); // release the full-object stream we only peeked at
     }
   }
+
+  // Scan R2 for orphans (objects in bucket with no D1 row)
+  try {
+    let truncated = true;
+    let cursor = undefined;
+    while (truncated && report.orphans.length < 50) {
+      const list = await env.BUCKET.list({ prefix: "p/", cursor, limit: 200 });
+      for (const item of list.objects || []) {
+        const rawId = item.key.slice(2).replace(/\.pdf$/, "");
+        if (!rowIdSet.has(rawId)) {
+          report.orphans.push(item.key);
+          if (report.orphans.length >= 50) break;
+        }
+      }
+      truncated = list.truncated;
+      cursor = list.cursor;
+    }
+  } catch (e) {
+    report.errors++;
+    console.error("reconcile: bucket list failed:", e);
+  }
+
   return report;
 }
 
@@ -275,12 +322,26 @@ export default {
       if (!id || !/^[A-Za-z0-9]{6,12}$/.test(id)) {
         return new Response("Not found", { status: 404 });
       }
-      // Try both new key (p/<id>) and legacy (p/<id>.pdf) for backward compat
-      let obj = await env.BUCKET.get(`p/${id}`);
+
+      const isHead = req.method === "HEAD";
+      const range = req.headers.get("Range");
+
+      // For HEAD or Range requests, fetch metadata first via head()
+      // to prevent downloading full object bodies unnecessarily
+      let obj;
       let key = `p/${id}`;
-      if (!obj) {
-        obj = await env.BUCKET.get(`p/${id}.pdf`);
-        key = `p/${id}.pdf`;
+      if (isHead || range) {
+        obj = await env.BUCKET.head(`p/${id}`);
+        if (!obj) {
+          obj = await env.BUCKET.head(`p/${id}.pdf`);
+          key = `p/${id}.pdf`;
+        }
+      } else {
+        obj = await env.BUCKET.get(`p/${id}`);
+        if (!obj) {
+          obj = await env.BUCKET.get(`p/${id}.pdf`);
+          key = `p/${id}.pdf`;
+        }
       }
       if (!obj) return new Response("File not found", { status: 404 });
 
@@ -305,7 +366,6 @@ export default {
       if (obj.httpEtag) headers.set("ETag", obj.httpEtag);
       headers.set("Accept-Ranges", "bytes");
 
-      const range = req.headers.get("Range");
       if (range) {
         // Single range only: "bytes=a-b", "bytes=a-", or suffix "bytes=-n"
         const m = range.match(/^bytes=(\d*)-(\d*)$/);
@@ -314,6 +374,10 @@ export default {
           if (!m[1]) {
             // suffix range: last n bytes
             const n = parseInt(m[2], 10);
+            if (n === 0 || obj.size === 0) {
+              headers.set("Content-Range", `bytes */${obj.size}`);
+              return new Response("Range Not Satisfiable", { status: 416, headers });
+            }
             start = Math.max(0, obj.size - n);
             end = obj.size - 1;
           } else {
@@ -321,15 +385,18 @@ export default {
             end = m[2] ? parseInt(m[2], 10) : obj.size - 1;
           }
           // Validate range
-          if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= obj.size || end >= obj.size) {
+          if (Number.isNaN(start) || Number.isNaN(end) || start > end || start >= obj.size) {
             headers.set("Content-Range", `bytes */${obj.size}`);
             return new Response("Range Not Satisfiable", { status: 416, headers });
           }
+          // Clamp end to obj.size - 1 per RFC 9110
+          if (end >= obj.size) end = obj.size - 1;
+
           const sliced = await env.BUCKET.get(key, { range: { offset: start, length: end - start + 1 } });
           if (sliced) {
             headers.set("Content-Range", `bytes ${start}-${end}/${obj.size}`);
             headers.set("Content-Length", String(end - start + 1));
-            if (req.method === "HEAD") {
+            if (isHead) {
               return new Response(null, { status: 206, headers });
             }
             return new Response(sliced.body, { status: 206, headers });
@@ -338,10 +405,17 @@ export default {
       }
 
       headers.set("Content-Length", String(obj.size));
-      if (req.method === "HEAD") {
+      if (isHead) {
         return new Response(null, { headers });
       }
-      return new Response(obj.body, { headers });
+      if (obj.body) {
+        return new Response(obj.body, { headers });
+      }
+      const full = await env.BUCKET.get(key);
+      if (full?.body) {
+        return new Response(full.body, { headers });
+      }
+      return new Response("Not found", { status: 404, headers });
     }
 
     // API: Health — public (uptime checks). `auth` lets the dashboard show
@@ -518,14 +592,17 @@ export default {
         return json({ error: "Invalid JSON body" }, 400);
       }
       const title = (body.title || "").toString().trim().slice(0, 200) || null;
-      const category = body.category === undefined ? undefined : (body.category || "").toString().trim().slice(0, 100) || null;
       const row = await env.DB.prepare("SELECT filename, title, category FROM docs WHERE id = ?").bind(id).first();
       if (!row) return json({ error: "Not found" }, 404);
-      await env.DB.prepare("UPDATE docs SET title = ?, category = COALESCE(?, category) WHERE id = ?")
-        .bind(title, category ?? null, id)
+      const newCategory =
+        body.category !== undefined
+          ? (body.category || "").toString().trim().slice(0, 100) || null
+          : row.category;
+      await env.DB.prepare("UPDATE docs SET title = ?, category = ? WHERE id = ?")
+        .bind(title, newCategory, id)
         .run();
       await audit(env, "rename", id, row.filename, `title: "${row.title ?? "—"}" → "${title ?? "—"}"`);
-      return json({ ok: true, id, title, category: category ?? row.category });
+      return json({ ok: true, id, title, category: newCategory });
     }
 
     // API: Activity — recent audit trail for the dashboard feed.

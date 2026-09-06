@@ -5,9 +5,23 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>filo — Permanent Links</title>
 <meta name="description" content="filo — permanent file archive." />
+<script>
+(function(){
+  var w=window,d=document,
+    dm=d.compatibilityMode&&d.compatibilityMode!=='BackCompat'?'html':'body';
+  try{
+    var ls=localStorage.getItem('filo_theme');
+    if(ls==='dark'||(!ls&&w.matchMedia('(prefers-color-scheme:dark)').matches)){
+      d.documentElement.classList.add('dark');
+    }
+  }catch(e){}
+})();
+</script>
+<style>html,body{visibility:hidden;}</style>
 </head>
 <body>
 <div id="app"></div>
 <script type="module" src="/src/main.js"></script>
+<script>document.documentElement.style.visibility='visible';</script>
 </body>
 </html>

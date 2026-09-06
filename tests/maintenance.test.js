@@ -69,4 +69,23 @@ describe("reconcile", () => {
     expect(a.action).toBe("cleanup");
     expect(a.detail).toContain('"checked":1');
   });
+
+  it("reports orphaned R2 objects (object with no D1 row)", async () => {
+    await seedDoc("aliverow", "alive.txt");
+    await env.BUCKET.put("p/orphan1", "drift", { httpMetadata: { contentType: "text/plain" } });
+    await env.BUCKET.put("p/orphan2.pdf", "legacy-drift", { httpMetadata: { contentType: "application/pdf" } });
+    const j = await (await fetch("https://example.com/api/reconcile", { method: "POST" })).json();
+    expect(j.report.orphans).toEqual(expect.arrayContaining(["p/orphan1", "p/orphan2.pdf"]));
+    // live row still present
+    const kept = await env.DB.prepare("SELECT id FROM docs WHERE id = 'aliverow'").first();
+    expect(kept).not.toBeNull();
+  });
+
+  it("never deletes orphaned objects — only reports them", async () => {
+    await env.BUCKET.put("p/orphan3", "precious", { httpMetadata: { contentType: "text/plain" } });
+    await fetch("https://example.com/api/reconcile", { method: "POST" });
+    const obj = await env.BUCKET.get("p/orphan3");
+    expect(obj).not.toBeNull();
+    expect(await obj.text()).toBe("precious");
+  });
 });
