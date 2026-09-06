@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+    labels:
+      - "dependencies"
+    reviewers:
+      - "dilludx"
+    groups:
+      dev-dependencies:
+        patterns:
+          - "@cloudflare/*"
+          - "@sveltejs/*"
+          - "vite"
+          - "vitest"
+          - "wrangler"
+        update-types:
+          - "minor"
+          - "patch"
+      svelte:
+        patterns:
+          - "svelte"
+        update-types:
+          - "minor"
+          - "patch"
