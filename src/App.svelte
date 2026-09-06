@@ -315,12 +315,6 @@
 
     <!-- content -->
     <div class="flex-1 min-h-0 overflow-auto p-4 md:p-6 space-y-6 bg-[#fcfcfd] dark:bg-zinc-950">
-      {#if openMode && !needToken}
-        <div class="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-[12px]">
-          <span class="shrink-0 mt-px">⚠</span>
-          <div>Open mode — anyone who finds this URL can upload or delete files. Set an <code class="font-mono text-[11px] bg-amber-100 dark:bg-amber-900 px-1 rounded">UPLOAD_TOKEN</code> secret on the server to lock it down.</div>
-        </div>
-      {/if}
 
       <!-- upload -->
       <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-[20px] overflow-hidden shadow-sm">
