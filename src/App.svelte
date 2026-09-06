@@ -32,6 +32,7 @@
   let openMode = $state(false)
   let tokenInput = $state('')
   let token = ''
+  let userEmail = $state('')
   try{ token = localStorage.getItem('filo_token') || '' }catch{}
   function authHeaders(){ return token ? { 'x-upload-token': token } : {} }
   let now = $state(new Date())
@@ -135,7 +136,9 @@
     return ()=>clearTimeout(searchTimer)
   })
   $effect(()=>{
-    fetch('/api/health').then(r=>r.json()).then(j=>{ openMode = j.auth===false }).catch(()=>{})
+    fetch('/api/health').then(r=>r.json()).then(j=>{
+      openMode = j.auth===false; userEmail = j.user || ''
+    }).catch(()=>{})
   })
 
   function saveToken(){
@@ -308,6 +311,9 @@
           <div class="hidden lg:block text-[12px] text-zinc-600 dark:text-zinc-400">
             {now.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric', year:'numeric'})} — {now.toLocaleTimeString('en-US',{hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false})}
           </div>
+          {#if userEmail}
+            <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full" title="Authenticated via Cloudflare Access">{userEmail.split('@')[0]}</span>
+          {/if}
           <button onclick={()=>theme=theme==='dark'?'light':'dark'} title="Toggle theme" class="w-8 h-8 rounded-full border border-zinc-200 dark:border-zinc-700 grid place-items-center text-[13px] hover:bg-zinc-100 dark:hover:bg-zinc-800">{theme==='dark'?'☀':'🌙'}</button>
         </div>
       {/if}
