@@ -7,17 +7,17 @@
 <meta name="description" content="filo — permanent file archive." />
 <script>
 (function(){
-  var w=window,d=document,
-    dm=d.compatibilityMode&&d.compatibilityMode!=='BackCompat'?'html':'body';
+  // Apply dark mode before paint (prevents FOUC)
   try{
-    var ls=localStorage.getItem('filo_theme');
-    if(ls==='dark'||(!ls&&w.matchMedia('(prefers-color-scheme:dark)').matches)){
-      d.documentElement.classList.add('dark');
+    var ls = localStorage.getItem('filo_theme');
+    if (ls === 'dark' || (!ls && window.matchMedia('(prefers-color-scheme:dark)').matches)) {
+      document.documentElement.classList.add('dark');
     }
   }catch(e){}
+  // Make sure content is visible quickly (don't leave page blank if Svelte is slow)
+  setTimeout(function(){ document.documentElement.style.visibility='visible'; }, 100);
 })();
 </script>
-<style>html,body{visibility:hidden;}</style>
 </head>
 <body>
 <div id="app"></div>
