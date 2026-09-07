@@ -22,7 +22,7 @@ export default defineWorkersConfig({
       defineWorkersProject({
         test: {
           name: "app",
-          include: ["tests/api.test.js", "tests/files.test.js", "tests/maintenance.test.js"],
+          include: ["tests/api.test.js", "tests/files.test.js", "tests/maintenance.test.js", "tests/magic.test.js"],
           setupFiles: ["./tests/setup.js"],
           poolOptions: pool(),
         },

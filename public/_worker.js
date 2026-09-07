@@ -421,8 +421,11 @@ export default {
 
     // API: Health — public (uptime checks). `auth` lets the dashboard show
     // its open-mode warning banner without an authenticated round-trip.
+    // When Cloudflare Access is enabled, also reports the authenticated user.
     if (path === "/api/health") {
-      return json({ ok: true, time: Date.now(), auth: Boolean(env.UPLOAD_TOKEN) });
+      const accessAuth = req.headers.get("cf-access-authenticated") === "true";
+      const accessUser = req.headers.get("cf-access-user-email") || null;
+      return json({ ok: true, time: Date.now(), auth: Boolean(env.UPLOAD_TOKEN) || accessAuth, user: accessUser });
     }
 
     // Everything below is the private API — token-gated when UPLOAD_TOKEN is set.

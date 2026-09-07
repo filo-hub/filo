@@ -33,6 +33,8 @@
   let tokenInput = $state('')
   let token = ''
   let userEmail = $state('')
+  let magicEmail = $state('')
+  let magicSent = $state(false)
   try{ token = localStorage.getItem('filo_token') || '' }catch{}
   function authHeaders(){ return token ? { 'x-upload-token': token } : {} }
   let now = $state(new Date())
@@ -146,6 +148,21 @@
     try{ token ? localStorage.setItem('filo_token',token) : localStorage.removeItem('filo_token') }catch{}
     tokenInput=''
     load(true)
+  }
+
+  async function requestMagicLink(){
+    if(!magicEmail.trim()) return
+    magicSent=true
+    try{
+      const r=await fetch('/api/request-link',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:magicEmail.trim()})})
+      const j=await r.json()
+      if(j.link){
+        // In production this sends email; for demo, show link
+        notice=`Magic link sent to ${magicEmail}. Click: ${j.link}`; setTimeout(()=>notice='',8000)
+      } else {
+        notice='Failed to send link'; setTimeout(()=>notice='',3000)
+      }
+    }catch{ notice='Network error'; setTimeout(()=>notice='',3000) }
   }
 
   // ---- upload -----------------------------------------------------------------
@@ -312,7 +329,10 @@
             {now.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric', year:'numeric'})} — {now.toLocaleTimeString('en-US',{hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false})}
           </div>
           {#if userEmail}
-            <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full" title="Authenticated via Cloudflare Access">{userEmail.split('@')[0]}</span>
+            <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full" title="Authenticated">{userEmail.split('@')[0]}</span>
+          {:else}
+            <input bind:value={magicEmail} placeholder="Sign in with email" type="email" onkeydown={(e)=>{if(e.key==='Enter')requestMagicLink()}} class="px-3 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-transparent focus:bg-white dark:focus:bg-zinc-900 focus:border-zinc-900 dark:focus:border-zinc-100 focus:outline-none text-[13px] w-[180px]" />
+            <button onclick={requestMagicLink} class="px-4 py-2 rounded-full bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-[12px] font-bold">Sign in</button>
           {/if}
           <button onclick={()=>theme=theme==='dark'?'light':'dark'} title="Toggle theme" class="w-8 h-8 rounded-full border border-zinc-200 dark:border-zinc-700 grid place-items-center text-[13px] hover:bg-zinc-100 dark:hover:bg-zinc-800">{theme==='dark'?'☀':'🌙'}</button>
         </div>
