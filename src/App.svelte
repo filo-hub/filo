@@ -281,11 +281,11 @@
 
 <svelte:document onpaste={(e)=>{ if(e.clipboardData?.files?.length){ addFiles(e.clipboardData.files); notice='Pasted — ready to upload'; setTimeout(()=>notice='',2000) } }} />
 
-<div class="h-screen flex bg-[#fcfcfd] dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 overflow-hidden transition-colors">
+<div class="app-shell h-screen flex bg-[#f5f5f1] dark:bg-[#111313] text-zinc-900 dark:text-zinc-100 overflow-hidden transition-colors">
   <!-- sidebar -->
-  <aside class="hidden md:flex w-[180px] shrink-0 bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 flex-col">
-    <div class="h-[56px] px-5 flex items-center border-b border-zinc-200 dark:border-zinc-800">
-      <div class="font-bold text-[22px] tracking-tight leading-none">filo</div>
+  <aside class="app-sidebar hidden md:flex w-[220px] shrink-0 bg-white/70 dark:bg-[#171a1a] border-r border-zinc-200 dark:border-zinc-800 flex-col">
+    <div class="h-[72px] px-6 flex items-center border-b border-zinc-200 dark:border-zinc-800">
+      <div class="brand-mark"><span>f</span>ilo</div>
     </div>
     <nav class="p-3 flex-1 space-y-1 overflow-auto">
       <div class="text-[11px] font-bold tracking-widest text-zinc-400 px-2 py-2">MENU</div>
@@ -302,8 +302,8 @@
       {/if}
     </nav>
     <div class="p-3 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
-      <div class="p-3 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white">
-        <div class="text-[11px] opacity-80">Used</div>
+      <div class="storage-meter p-3 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900">
+        <div class="text-[11px] opacity-70">Storage used</div>
         <div class="text-[13px] font-bold">{fmtSize(storage.total)} / {fmtSize(storage.quota)}</div>
         <div class="mt-2 h-1.5 rounded-full bg-white/20 overflow-hidden"><div class="h-full bg-white rounded-full" style="width: {Math.min(100, storage.total/storage.quota*100)}%"></div></div>
       </div>
@@ -314,9 +314,9 @@
   <!-- main -->
   <div class="flex-1 min-w-0 flex flex-col overflow-hidden">
     <!-- header -->
-    <header class="h-[56px] shrink-0 bg-white/80 dark:bg-zinc-900/80 backdrop-blur border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3 px-4 md:px-6">
+    <header class="app-header h-[72px] shrink-0 bg-white/80 dark:bg-[#171a1a]/90 backdrop-blur border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3 px-4 md:px-8">
       <div class="flex-1 max-w-[420px]">
-        <input bind:value={q} placeholder="Search all files…" class="w-full px-3 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-transparent focus:bg-white dark:focus:bg-zinc-900 focus:border-zinc-900 dark:focus:border-zinc-100 focus:outline-none text-[13px]" />
+        <label class="search-box"><span aria-hidden="true">⌕</span><input bind:value={q} placeholder="Search your archive" /></label>
       </div>
       {#if needToken}
         <div class="ml-auto flex items-center gap-2">
@@ -331,8 +331,7 @@
           {#if userEmail}
             <span class="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full" title="Authenticated">{userEmail.split('@')[0]}</span>
           {:else}
-            <input bind:value={magicEmail} placeholder="Sign in with email" type="email" onkeydown={(e)=>{if(e.key==='Enter')requestMagicLink()}} class="px-3 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-transparent focus:bg-white dark:focus:bg-zinc-900 focus:border-zinc-900 dark:focus:border-zinc-100 focus:outline-none text-[13px] w-[180px]" />
-            <button onclick={requestMagicLink} class="px-4 py-2 rounded-full bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-[12px] font-bold">Sign in</button>
+            <div class="auth-inline"><input bind:value={magicEmail} aria-label="Email address" placeholder="Email address" type="email" onkeydown={(e)=>{if(e.key==='Enter')requestMagicLink()}} /><button onclick={requestMagicLink}>Sign in</button></div>
           {/if}
           <button onclick={()=>theme=theme==='dark'?'light':'dark'} title="Toggle theme" class="w-8 h-8 rounded-full border border-zinc-200 dark:border-zinc-700 grid place-items-center text-[13px] hover:bg-zinc-100 dark:hover:bg-zinc-800">{theme==='dark'?'☀':'🌙'}</button>
         </div>
@@ -340,12 +339,13 @@
     </header>
 
     <!-- content -->
-    <div class="flex-1 min-h-0 overflow-auto p-4 md:p-6 space-y-6 bg-[#fcfcfd] dark:bg-zinc-950">
+    <div class="app-content flex-1 min-h-0 overflow-auto p-4 md:p-8 space-y-6 bg-[#f5f5f1] dark:bg-[#111313]">
 
       <!-- upload -->
-      <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-[20px] overflow-hidden shadow-sm">
+      <div class="app-upload-panel bg-white dark:bg-[#171a1a] border border-zinc-200 dark:border-zinc-800 rounded-[20px] overflow-hidden shadow-sm">
         <div class="p-5 md:p-6">
-          <h1 class="text-[22px] font-bold tracking-tight leading-none">Upload once,<br><span class="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">link forever.</span></h1>
+          <div class="eyebrow">Permanent file archive</div>
+          <h1 class="text-[30px] font-bold tracking-tight leading-none">Keep the file.<br><span>Share the link.</span></h1>
           <div class="mt-4 flex flex-col lg:flex-row gap-4">
             <!-- left — drop / paste / click -->
             <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -361,15 +361,15 @@
               tabindex="0"
               role="button"
               aria-label="Upload files: drop, click, or paste"
-              class="flex-1 border-2 border-dashed rounded-2xl p-4 min-h-[200px] flex flex-col justify-center items-center gap-2 text-center cursor-pointer transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 {drag?'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40':'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-white dark:hover:bg-zinc-800 hover:border-zinc-900 dark:hover:border-zinc-400'}"
+              class="app-dropzone flex-1 border-2 border-dashed rounded-2xl p-4 min-h-[200px] flex flex-col justify-center items-center gap-2 text-center cursor-pointer transition focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 {drag?'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40':'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-white dark:hover:bg-zinc-800 hover:border-zinc-900 dark:hover:border-zinc-400'}"
             >
-              <div class="w-10 h-10 rounded-xl bg-white dark:bg-zinc-900 border shadow-sm grid place-items-center">⬆</div>
+              <div class="drop-icon" aria-hidden="true">↑</div>
               <div class="text-[13px] font-bold">Drop files, click, or paste</div>
               <div class="text-[11px] text-zinc-500 dark:text-zinc-400">any type · up to 25MB each</div>
               <input bind:this={fileInput} type="file" multiple class="hidden" onchange={(e)=>{addFiles(e.target.files); e.target.value=''}} />
             </div>
             <!-- right — title/category + upload -->
-            <div class="flex-1 min-h-[200px] flex flex-col justify-center gap-3">
+            <div class="app-upload-fields flex-1 min-h-[200px] flex flex-col justify-center gap-3">
               <input bind:value={title} placeholder="Title (optional)" class="w-full h-[42px] px-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 focus:bg-white dark:focus:bg-zinc-900 focus:border-zinc-900 dark:focus:border-zinc-100 outline-none text-[13px] shrink-0" />
               <input bind:value={category} list="filo-cats" placeholder="Category (optional)" class="w-full h-[42px] px-3 border border-zinc-200 dark:border-zinc-700 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 focus:bg-white dark:focus:bg-zinc-900 focus:border-zinc-900 dark:focus:border-zinc-100 outline-none text-[13px] shrink-0" />
               <datalist id="filo-cats">{#each cats as c}<option value={c}></option>{/each}</datalist>
@@ -418,7 +418,7 @@
       </div>
 
       <!-- files -->
-      <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
+      <div class="app-files-panel bg-white dark:bg-[#171a1a] border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
         <div class="flex items-center gap-2 px-4 py-3 border-b border-zinc-100 dark:border-zinc-800">
           <div class="text-[13px] font-bold">{cat||'All files'} <span class="text-zinc-400 font-normal">· {total}</span></div>
           <div class="ml-auto flex items-center gap-2">
@@ -489,7 +489,7 @@
 
       <!-- activity -->
       {#if activity.length}
-        <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4">
+        <div class="app-activity-panel bg-white dark:bg-[#171a1a] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-4">
           <div class="text-[13px] font-bold mb-2">Recent activity</div>
           <div class="space-y-1 max-h-[200px] overflow-auto">
             {#each activity.slice(0,20) as a (a.id ?? a.ts)}
