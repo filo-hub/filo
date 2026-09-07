@@ -133,9 +133,40 @@ async function safeEqual(a, b) {
 async function authorized(req, env) {
   const want = env.UPLOAD_TOKEN;
   if (!want) return true; // open mode — no secret configured
+
+  // Token auth
   const auth = req.headers.get("Authorization") || "";
   const got = auth.startsWith("Bearer ") ? auth.slice(7) : req.headers.get("x-upload-token") || "";
-  return await safeEqual(got, want);
+  if (await safeEqual(got, want)) return true;
+
+  // Magic link session auth (alternative to token)
+  const session = req.headers.get("Cookie") || "";
+  const m = session.match(/filo_session=([A-Za-z0-9-]+)/);
+  if (m) {
+    const row = await env.DB.prepare("SELECT email FROM magic_links WHERE id = ? AND used = 1 AND expires_at > ?").bind(m[1], Date.now()).first();
+    if (row?.email) return true;
+  }
+  return false;
+}
+
+// Generate a magic link for the given email address. Returns the login URL.
+async function generateMagicLink(env, email, origin) {
+  const id = nanoid(16);
+  const expiresAt = Date.now() + 24 * 60 * 60 * 1000; // 24h
+  await env.DB.prepare("INSERT INTO magic_links (id, email, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)")
+    .bind(id, email, expiresAt, Date.now())
+    .run();
+  return `${origin}/api/login/${id}`;
+}
+
+// Verify a magic link token and return the email (or null if invalid/expired)
+async function verifyMagicLink(env, id) {
+  const row = await env.DB.prepare("SELECT email, expires_at, used FROM magic_links WHERE id = ?").bind(id).first();
+  if (!row) return null;
+  if (row.used === 1) return null;
+  if (row.expires_at < Date.now()) return null;
+  await env.DB.prepare("UPDATE magic_links SET used = 1 WHERE id = ?").bind(id).run();
+  return row.email;
 }
 
 // ---- storage quota (default = 10GB R2 free tier) -------------------------
@@ -425,7 +456,59 @@ export default {
     if (path === "/api/health") {
       const accessAuth = req.headers.get("cf-access-authenticated") === "true";
       const accessUser = req.headers.get("cf-access-user-email") || null;
-      return json({ ok: true, time: Date.now(), auth: Boolean(env.UPLOAD_TOKEN) || accessAuth, user: accessUser });
+      // Check for magic link session cookie
+      const cookie = req.headers.get("Cookie") || "";
+      const m = cookie.match(/filo_session=([A-Za-z0-9-]+)/);
+      let magicUser = null;
+      if (m) {
+        const row = await env.DB.prepare("SELECT email FROM magic_links WHERE id = ? AND used = 1 AND expires_at > ?").bind(m[1], Date.now()).first();
+        if (row?.email) magicUser = row.email;
+      }
+      return json({ ok: true, time: Date.now(), auth: Boolean(env.UPLOAD_TOKEN) || accessAuth || !!magicUser, user: accessUser || magicUser });
+    }
+
+    // API: Request a magic link — POST /api/request-link
+    // Body: { email: "user@example.com" }
+    if (path === "/api/request-link" && req.method === "POST") {
+      let body;
+      try { body = await req.json(); } catch { return json({ error: "Invalid JSON" }, 400); }
+      const email = String(body.email || "").trim().toLowerCase();
+      if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        return json({ error: "A valid email address is required" }, 400);
+      }
+      const id = nanoid(16);
+      const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+      try {
+        await env.DB.prepare("INSERT INTO magic_links (id, email, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)")
+          .bind(id, email, expiresAt, Date.now())
+          .run();
+      } catch (e) {
+        console.error("magic link insert failed:", e);
+        return json({ error: "Could not create login link" }, 500);
+      }
+      const origin = `${url.protocol}//${url.host}`;
+      const link = `${origin}/api/login/${id}`;
+      // Log the link to console — in production you'd send an actual email
+      console.log(`Magic link for ${email}: ${link}`);
+      // Return the link so the user can click it (in dev/test)
+      return json({ ok: true, link, email, expires_in: 24 * 3600 });
+    }
+
+    // API: Verify a magic link — GET /api/login/:id
+    // Sets a session cookie and redirects to the dashboard
+    if (path.startsWith("/api/login/") && req.method === "GET") {
+      const id = path.slice("/api/login/".length).split("/")[0];
+      if (!id || !/^[A-Za-z0-9]{16}$/.test(id)) {
+        return new Response("Invalid link", { status: 400 });
+      }
+      const email = await verifyMagicLink(env, id);
+      if (!email) {
+        return new Response("Invalid or expired login link", { status: 400 });
+      }
+      const headers = new Headers();
+      headers.set("Set-Cookie", `filo_session=${id}; HttpOnly; SameSite=Strict; Max-Age=${24 * 3600}; Path=/`);
+      headers.set("Location", "/");
+      return new Response(null, { status: 302, headers });
     }
 
     // Everything below is the private API — token-gated when UPLOAD_TOKEN is set.
