@@ -591,8 +591,12 @@ export default {
       return new Response(null, { status: 302, headers });
     }
 
-    // Everything below is the private API — token-gated when UPLOAD_TOKEN is set.
-    if (!(await authorized(req, env))) return json({ error: "Unauthorized" }, 401);
+    // Private API — token-gated when UPLOAD_TOKEN is set. Scoped to /api/*
+    // only: /p/* links and the static frontend below stay public. (The
+    // public endpoints above — health, request-link, login — return early.)
+    if (path.startsWith("/api/") && !(await authorized(req, env))) {
+      return json({ error: "Unauthorized" }, 401);
+    }
 
     // API: List — newest first, paginated via ?offset= (default 0).
     // ?q= searches server-side over filename/title/id (the dashboard can
