@@ -145,7 +145,7 @@
             <input bind:this={fileInput} type="file" class="hidden" onchange={(e)=>onPick(e.target.files[0])} />
           </label>
           <div class="mt-3 flex gap-2 items-center">
-            <button onclick={doUpload} disabled={!picked} class="w-32 shrink-0 h-11 rounded-xl bg-zinc-900 text-white font-bold text-[13px] disabled:opacity-40 flex justify-center items-center gap-2 hover:bg-black">
+            <button onclick={doUpload} disabled={!picked} class="flex-1 min-w-0 h-11 rounded-xl bg-zinc-900 text-white font-bold text-[13px] disabled:opacity-40 flex justify-center items-center gap-2 hover:bg-black">
               {#if progress==='Uploading…'}<span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>{/if}
               Upload
             </button>
