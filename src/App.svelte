@@ -13,6 +13,26 @@
     return ()=>clearInterval(t)
   })
 
+  // Access token (UPLOAD_TOKEN) — persisted locally, sent as x-upload-token
+  // on every API call. /p/ links stay public; only the dashboard needs it.
+  let token = $state('')
+  let tokenInput = $state('')
+  let locked = $state(false)
+  try{ token = localStorage.getItem('filo_token') || '' }catch{}
+  function authHeaders(){ return token ? { 'x-upload-token': token } : {} }
+  function saveToken(){
+    token = tokenInput.trim()
+    tokenInput = ''
+    try{ token ? localStorage.setItem('filo_token', token) : localStorage.removeItem('filo_token') }catch{}
+    locked = false
+    load()
+  }
+  function clearToken(){
+    token = ''
+    try{ localStorage.removeItem('filo_token') }catch{}
+    docs = []
+  }
+
   function fmtSize(b){
     if(b<1024) return b+' B'
     if(b<1024*1024) return (b/1024).toFixed(1)+' KB'
@@ -51,12 +71,15 @@
 
   async function load(){
     try{
-      const r=await fetch('/api/list')
+      const r=await fetch('/api/list',{headers:authHeaders()})
+      if(r.status===401){ locked=true; docs=[]; return }
+      locked=false
       const j=await r.json()
       docs=(j.docs||[]).filter(d=>isSafeId(d.id))
     }catch(e){ progress='Failed to load' }
     try{
-      const r=await fetch('/api/storage')
+      const r=await fetch('/api/storage',{headers:authHeaders()})
+      if(r.status===401){ locked=true; return }
       const j=await r.json()
       if(j.total!=null) storage=j
     }catch{}
@@ -70,7 +93,8 @@
     fd.append('file', picked)
     if(title.trim()) fd.append('title', title.trim())
     try{
-      const r=await fetch('/api/upload',{method:'POST', body:fd})
+      const r=await fetch('/api/upload',{method:'POST', body:fd, headers:authHeaders()})
+      if(r.status===401){ locked=true; throw new Error('Locked — enter access token') }
       const j=await r.json()
       if(!r.ok) throw new Error(j.error||'Upload failed')
       result={ url: location.origin+'/p/'+j.id, filename:j.filename, size:j.size }
@@ -79,7 +103,12 @@
     }catch(e){ progress='✕ '+(e.message||'Failed') }
   }
   async function copy(t){ try{ await navigator.clipboard.writeText(t) }catch{ prompt('Copy',t) } }
-  async function del(id){ if(!confirm('Delete '+id+'?')) return; await fetch('/api/delete/'+encodeURIComponent(id),{method:'DELETE'}); load() }
+  async function del(id){
+    if(!confirm('Delete '+id+'?')) return
+    const r=await fetch('/api/delete/'+encodeURIComponent(id),{method:'DELETE', headers:authHeaders()})
+    if(r.status===401){ locked=true; progress='Locked — enter access token'; return }
+    load()
+  }
 </script>
 
 <div class="h-screen flex bg-[#fcfcfd] text-zinc-900 overflow-hidden">
@@ -108,9 +137,17 @@
       <div class="flex-1 max-w-[420px]">
         <input bind:value={q} placeholder="Search…" class="w-full px-3 py-2 rounded-full bg-zinc-100 border border-transparent focus:bg-white focus:border-zinc-900 focus:outline-none text-[13px]" />
       </div>
-      <div class="ml-auto hidden sm:block text-[12px] text-zinc-600">
-        {now.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric', year:'numeric'})} — {now.toLocaleTimeString('en-US',{hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false})}
-      </div>
+      {#if !token}
+        <div class="ml-auto flex items-center gap-2">
+          <input bind:value={tokenInput} placeholder="Access token" type="password" autocomplete="off" onkeydown={(e)=>{if(e.key==='Enter')saveToken()}} class="px-3 py-2 rounded-full bg-zinc-100 border border-transparent focus:bg-white focus:border-zinc-900 focus:outline-none text-[13px] w-[160px]" />
+          <button onclick={saveToken} class="px-4 py-2 rounded-full bg-zinc-900 text-white text-[12px] font-bold shrink-0">Unlock</button>
+        </div>
+      {:else}
+        <div class="ml-auto hidden sm:block text-[12px] text-zinc-600">
+          {now.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric', year:'numeric'})} — {now.toLocaleTimeString('en-US',{hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false})}
+        </div>
+        <button onclick={clearToken} title="Forget access token" class="text-[11px] font-bold text-zinc-400 hover:text-zinc-900 shrink-0">Lock</button>
+      {/if}
     </header>
 
     <!-- content -->
@@ -196,7 +233,7 @@
                   </td>
                 </tr>
               {:else}
-                <tr><td colspan="4" class="px-4 py-8 text-center text-zinc-500">No files yet.</td></tr>
+                <tr><td colspan="4" class="px-4 py-8 text-center text-zinc-500">{locked ? 'Locked — enter your access token above.' : 'No files yet.'}</td></tr>
               {/each}
             </tbody>
           </table>
