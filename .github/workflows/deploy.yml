@@ -54,12 +54,9 @@ jobs:
       - run: npm run build
       # Schema first: a worker that queries columns the DB lacks 500s
       # (this exact drift blanked the dashboard once — never again).
-      # TODO(enforce): drop continue-on-error once CLOUDFLARE_API_TOKEN
-      # has Account/D1/Edit scope (currently 7403s). Remote DB is
-      # already fully migrated; this step is a no-op safety net until then.
+      # Blocking by design: if this fails, the deploy must stop.
       - name: Apply D1 migrations (remote)
         run: npx wrangler d1 migrations apply filo-db --remote
-        continue-on-error: true
       - run: npx wrangler deploy
       - name: Deploy to Pages (fileo.pages.dev — config from wrangler.pages.toml)
         run: |
