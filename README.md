@@ -1,9 +1,9 @@
 # filo — Plug & Play Permanent Links
 
-Upload any file → get `https://filo-hub.pages.dev/p/8xK29m` that never breaks, even if the original site deletes it.
+Upload any file → get `https://fileo.pages.dev/p/8xK29m` that never breaks, even if the original site deletes it.
 
 * **GitHub = code only.** Files go to **R2** (free 10GB), never committed.
-* **Two deploys, one codebase.** `worker.js` is the single source; a vite plugin (`vite.config.js`) regenerates `public/_worker.js` from it on every `npm run build`, so Workers (`filo.<sub>.workers.dev`) and Pages (`filo-hub.pages.dev`) always run identical logic. Never edit `public/_worker.js` by hand.
+* **Two deploys, one codebase.** `worker.js` is the single source; a vite plugin (`vite.config.js`) regenerates `public/_worker.js` from it on every `npm run build`, so Workers (`filo.<sub>.workers.dev`) and Pages (`fileo.pages.dev`) always run identical logic. Never edit `public/_worker.js` by hand.
 * **Permanent URLs.** `nanoid` 8, id allocated by D1 insert-first (PK is the source of truth — concurrent uploads can never collide), independent of filename.
 * **Dashboard** (Svelte 5 + Tailwind): multi-file drag/drop/paste upload with live progress + cancel, server-side search, categories, rename, bulk delete, image thumbnails, sorting, activity feed, dark mode.
 * Supports any file type — PDF, JPG, PNG, DOCX, XLSX, ZIP, MP4, etc. — with correct `Content-Type`. Every upload records an **md5 checksum** (R2's own etag of the stored bytes) so you can prove a download is byte-identical years later.
@@ -22,7 +22,7 @@ npm run db:migrate:remote        # production
 
 # 3. Deploy
 npm run deploy          # Worker + assets (includes the weekly cron)
-npm run deploy:pages    # filo-hub.pages.dev (primary)
+npm run deploy:pages    # fileo.pages.dev (primary)
 ```
 
 Open the URL → drag files (or paste) → copy `/p/<id>` links for sharing.
@@ -50,12 +50,12 @@ No custom domain, no paid hosting, no manual HTML/JSON.
 * **Token (optional, recommended):** without any config everything is open (single user, private URL) — the dashboard shows an amber "open mode" banner reminding you of this. Set a token to lock the mutating/reading API:
   ```bash
   npx wrangler secret put UPLOAD_TOKEN            # Worker
-  npx wrangler pages secret put UPLOAD_TOKEN --project-name filo-hub   # Pages
+  npx wrangler pages secret put UPLOAD_TOKEN --project-name fileo   # Pages
   ```
   When set, all `/api/*` routes except `/p/*` and `/api/health` require header `x-upload-token: <token>` (or `Authorization: Bearer <token>`). The dashboard picks it up automatically. The token check hashes both sides (SHA-256) before comparing, so neither the token's length nor a mismatch position leaks through timing.
 * **Storage quota:** the dashboard bar and a server-side upload check use `MAX_STORAGE_MB` (default `10240` = the R2 free tier's 10GB):
   ```bash
-  npx wrangler pages secret put MAX_STORAGE_MB --project-name filo-hub   # e.g. 2048 = 2GB
+  npx wrangler pages secret put MAX_STORAGE_MB --project-name fileo   # e.g. 2048 = 2GB
   ```
   Uploads that would exceed it are rejected with HTTP 507 *before* anything is written to R2.
 * **No cross-origin API:** CORS headers are never reflected, so other websites can't drive-by upload/delete from visitors' browsers. Files remain embeddable cross-origin via `<img>`/`<video>`/direct links (not CORS-gated).
@@ -79,8 +79,8 @@ CI runs tests on every push/PR and gates both deploys on them.
 ## GitHub Actions
 
 `.github/workflows/deploy.yml`:
-* **push to main** → `test` job, then deploy **both** the Worker and Pages (`filo-hub.pages.dev`).
-* **PRs** → `test` job + a throwaway **Pages preview** at `pr-<n>.filo-hub.pages.dev`, commented on the PR. Previews share production bindings — never upload anything sensitive to one.
+* **push to main** → `test` job, then deploy **both** the Worker and Pages (`fileo.pages.dev`).
+* **PRs** → `test` job + a throwaway **Pages preview** at `pr-<n>.fileo.pages.dev`, commented on the PR. Previews share production bindings — never upload anything sensitive to one.
 
 Requires `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets.
 
