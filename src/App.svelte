@@ -84,7 +84,7 @@
 
 <div class="h-screen flex bg-[#fcfcfd] text-zinc-900 overflow-hidden">
   <!-- sidebar -->
-  <aside class="hidden md:flex w-[160px] shrink-0 bg-white border-r border-zinc-200 flex-col">
+  <aside class="hidden md:flex w-[220px] shrink-0 bg-white border-r border-zinc-200 flex-col">
     <div class="h-[56px] px-5 flex items-center border-b border-zinc-200">
       <div class="font-bold text-[22px] tracking-tight leading-none">filo</div>
     </div>
@@ -92,11 +92,11 @@
       <div class="text-[11px] font-bold tracking-widest text-zinc-400 px-2 py-2">MENU</div>
       <button onclick={()=>q=''} class="w-full text-left px-3 py-2 rounded-xl text-[13px] font-bold flex items-center gap-2 bg-zinc-900 text-white"><span>▦</span> All files <span class="ml-auto text-[11px] opacity-60">{docs.length}</span></button>
     </nav>
-    <div class="p-3 border-t border-zinc-100">
-      <div class="p-3 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white">
-        <div class="text-[11px] opacity-80">Used</div>
-        <div class="text-[13px] font-bold">{(storage.total/1024/1024).toFixed(1)} MB / 10GB</div>
-        <div class="mt-2 h-1.5 rounded-full bg-white/20 overflow-hidden"><div class="h-full bg-white rounded-full" style="width: {Math.min(100, storage.total/1024/1024/10240*100)}%"></div></div>
+    <div class="p-3 border-t border-zinc-100 shrink-0">
+      <div class="h-[68px] shrink-0 p-2.5 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white flex flex-col justify-center overflow-hidden">
+        <div class="text-[11px] leading-none opacity-80">Used</div>
+        <div class="mt-1 text-[13px] font-bold tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">{(storage.total/1024/1024).toFixed(1)} MB / 10GB</div>
+        <div class="mt-2 h-1.5 shrink-0 rounded-full bg-white/20 overflow-hidden"><div class="h-full bg-white rounded-full" style="width: {Math.min(100, storage.total/1024/1024/10240*100)}%"></div></div>
       </div>
     </div>
   </aside>
@@ -115,51 +115,53 @@
 
     <!-- content -->
     <div class="flex-1 min-h-0 overflow-auto p-4 md:p-6 space-y-6 bg-[#fcfcfd]">
-      <!-- upload -->
+      <!-- upload : one stacked panel, fixed heights so nothing shifts -->
       <div class="bg-white border border-zinc-200 rounded-[20px] overflow-hidden shadow-sm">
-        <div class="p-5 md:p-6 grid grid-cols-1 lg:grid-cols-[1.1fr_.9fr] gap-6 items-center">
-          <div>
-            <h1 class="text-[22px] font-bold tracking-tight leading-none">Upload once,<br><span class="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">link forever.</span></h1>
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <label
-              ondragover={(e)=>{e.preventDefault(); drag=true}}
-              ondragenter={(e)=>{e.preventDefault(); drag=true}}
-              ondragleave={(e)=>{e.preventDefault(); drag=false}}
-              ondrop={(e)=>{e.preventDefault(); drag=false; const f=e.dataTransfer.files[0]; if(f) onPick(f)}}
-              onclick={()=>fileInput?.click()}
-              class="mt-4 border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition flex flex-col items-center gap-2 {drag?'border-indigo-500 bg-indigo-50':'border-zinc-200 bg-zinc-50 hover:bg-white hover:border-zinc-900'}"
-            >
-              <div class="w-10 h-10 rounded-xl bg-white border shadow-sm grid place-items-center">⬆</div>
-              <div class="text-[13px] font-bold">Drop file or click</div>
-              <input bind:this={fileInput} type="file" class="hidden" onchange={(e)=>onPick(e.target.files[0])} />
-            </label>
+        <div class="p-5 md:p-6">
+          <div class="text-center">
+            <h1 class="text-[22px] font-bold tracking-tight leading-tight">Upload once, <span class="bg-gradient-to-r from-indigo-600 to-violet-600 bg-clip-text text-transparent">link forever.</span></h1>
+            <p class="mt-1 text-[12px] text-zinc-500">PDF · image · text — named automatically · 25MB max</p>
           </div>
-          <div class="space-y-3">
-              <input bind:value={title} placeholder="Title" class="w-full px-3 py-2.5 rounded-xl border border-zinc-200 bg-zinc-50 focus:bg-white focus:border-zinc-900 outline-none text-[13px]" />
-            <button onclick={doUpload} disabled={!picked} class="w-full py-3 rounded-xl bg-zinc-900 text-white font-bold text-[13px] disabled:opacity-40 flex justify-center items-center gap-2 hover:bg-black">
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <label
+            ondragover={(e)=>{e.preventDefault(); drag=true}}
+            ondragenter={(e)=>{e.preventDefault(); drag=true}}
+            ondragleave={(e)=>{e.preventDefault(); drag=false}}
+            ondrop={(e)=>{e.preventDefault(); drag=false; const f=e.dataTransfer.files[0]; if(f) onPick(f)}}
+            onclick={()=>fileInput?.click()}
+            class="mt-4 border-2 border-dashed rounded-2xl h-40 shrink-0 flex flex-col justify-center items-center gap-2 px-6 text-center cursor-pointer transition {drag?'border-indigo-500 bg-indigo-50':'border-zinc-200 bg-zinc-50 hover:bg-white hover:border-zinc-900'}"
+          >
+            <div class="w-11 h-11 shrink-0 rounded-xl bg-white border shadow-sm grid place-items-center text-lg">⬆</div>
+            <div class="min-w-0 max-w-full">
+              {#if picked}
+                <div class="text-[13px] font-bold truncate">{picked.name}</div>
+                <div class="mt-0.5 text-[12px] text-zinc-500 tabular-nums">{fmtSize(picked.size)} · click or drop to replace</div>
+              {:else}
+                <div class="text-[13px] font-bold">Drop a file here, or click to browse</div>
+                <div class="mt-0.5 text-[12px] text-zinc-500">any type · up to 25MB</div>
+              {/if}
+            </div>
+            <input bind:this={fileInput} type="file" class="hidden" onchange={(e)=>onPick(e.target.files[0])} />
+          </label>
+          <div class="mt-3 flex gap-2 items-center">
+            <button onclick={doUpload} disabled={!picked} class="w-32 shrink-0 h-11 rounded-xl bg-zinc-900 text-white font-bold text-[13px] disabled:opacity-40 flex justify-center items-center gap-2 hover:bg-black">
               {#if progress==='Uploading…'}<span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>{/if}
-              {picked ? `Upload ${picked.name.slice(0,18)}` : 'Upload'}
+              Upload
             </button>
-            {#if picked}
-              <div class="flex items-center gap-2 text-[12px] p-2.5 rounded-xl bg-zinc-50 border">
-                <span>{fileIcon(picked.name)}</span>
-                <span class="font-bold truncate flex-1">{picked.name}</span>
-                <span class="px-2 py-1 rounded-full bg-white border text-[11px] font-bold">{fmtSize(picked.size)}</span>
-              </div>
-            {/if}
-            {#if progress && progress!=='Uploading…' }<div class="text-[12px] font-bold {progress.startsWith('✓')?'text-emerald-600':'text-zinc-500'}">{progress}</div>{/if}
-            {#if result}
-              <div class="p-3 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white">
-                <div class="text-[11px] opacity-80">Permanent link</div>
-                <a href={result.url} target="_blank" class="font-mono text-[13px] font-bold break-all underline decoration-white/30">{result.url}</a>
-                <div class="flex gap-2 mt-2">
-                  <button onclick={()=>copy(result.url)} class="flex-1 py-2 rounded-full bg-white text-zinc-900 font-bold text-[12px]">Copy</button>
-                  <a href={result.url} target="_blank" class="flex-1 py-2 rounded-full bg-black/20 text-white font-bold text-[12px] text-center">Open</a>
-                </div>
-              </div>
-            {/if}
+            <input bind:value={title} placeholder="Title (optional)" class="flex-1 min-w-0 h-11 px-3 rounded-xl border border-zinc-200 bg-zinc-50 focus:bg-white focus:border-zinc-900 outline-none text-[13px] text-center" />
           </div>
+          <div class="mt-2 min-h-[22px] text-center text-[12px] font-bold {progress.startsWith('✓')?'text-emerald-600':'text-zinc-500'}">{#if progress && progress!=='Uploading…'}{progress}{/if}</div>
+          {#if result}
+            <div class="mt-1 p-3 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white text-center">
+              <div class="text-[11px] opacity-80">{result.filename}</div>
+              <a href={result.url} target="_blank" class="font-mono text-[13px] font-bold break-all underline decoration-white/30">{result.url}</a>
+              <div class="flex gap-2 mt-2">
+                <button onclick={()=>copy(result.url)} class="flex-1 py-2 rounded-full bg-white text-zinc-900 font-bold text-[12px]">Copy</button>
+                <a href={result.url} target="_blank" class="flex-1 py-2 rounded-full bg-black/20 text-white font-bold text-[12px] text-center">Open</a>
+              </div>
+            </div>
+          {/if}
         </div>
       </div>
 

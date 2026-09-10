@@ -19,6 +19,10 @@
  * scheduled(): weekly cron — reconcile D1 against R2 (see reconcile()).
  */
 
+// EXIF-only build (~45KB) — just DateTimeOriginal for photo dating.
+// Full exifr build would add IPTC/XMP parsing we don't use.
+import exifr from "exifr/dist/lite.esm.js";
+
 const ID_LEN = 8;
 const ID_CHARS = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const MAX_SIZE = 25 * 1024 * 1024; // self-imposed limit (CF Workers allows up to 100MB)
@@ -224,20 +228,97 @@ function contentDisposition(filename, contentType) {
   return `${type}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
 }
 
-function autoFilename(originalName, titleInput, buf) {
-  let base = (titleInput || "").trim();
+// ---- content-based naming -------------------------------------------------
+// Priority: typed title > embedded document title (PDF) > original filename
+// > sniffed text (txt/csv/...) > "file". Photos keep the shoot date for the
+// DDMMYYYY part instead of the upload date. Anything opaque (zip, video,
+// audio, office blobs we can't parse cheaply) falls back to the original
+// name — which is the user's own label for it.
+const IMAGE_EXTS = new Set(["jpg", "jpeg", "heic", "heif", "png", "webp", "tif", "tiff"]);
+const EXIF_HEAD_BYTES = 256 * 1024; // EXIF lives at the start of the file
+const PDF_HEAD_BYTES = 64 * 1024; // linearized PDFs stash /Info up front
+const PDF_TAIL_BYTES = 256 * 1024; // ...but the trailer is usually at the end
+
+// Only formats that can actually carry EXIF reach the parser: the exifr
+// lite build knows JPEG/HEIC/AVIF/TIFF, and anything else makes it reject
+// with "Unknown file format" on a detached promise try/catch can't see.
+// PNG is deliberately excluded — screenshots essentially never carry EXIF.
+function looksExifCapable(buf) {
+  const b = new Uint8Array(buf);
+  if (b.length < 12) return false;
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return true; // JPEG SOI
+  if (b[0] === 0x49 && b[1] === 0x49 && b[2] === 0x2a && b[3] === 0x00) return true; // TIFF LE
+  if (b[0] === 0x4d && b[1] === 0x4d && b[2] === 0x00 && b[3] === 0x2a) return true; // TIFF BE
+  if (b[4] === 0x66 && b[5] === 0x74 && b[6] === 0x79 && b[7] === 0x70) return true; // ftyp (HEIC/AVIF)
+  return false;
+}
+
+// EXIF shoot date (or null). Pure JS, no native deps — safe in workers.
+// Notes: no `pick` option (that path throws in exifr lite); the lite build
+// returns numeric tag keys, so read 36867/36868 as well as the translated
+// names. EXIF dates are "YYYY:MM:DD HH:MM:SS" strings — parsed manually.
+async function sniffPhotoTakenAt(buf) {
+  if (!looksExifCapable(buf)) return null;
+  try {
+    const tags = await exifr.parse(buf);
+    if (!tags) return null;
+    const raw = tags.DateTimeOriginal || tags.CreateDate || tags["36867"] || tags["36868"];
+    if (raw instanceof Date && !isNaN(raw)) return raw;
+    if (typeof raw === "string") {
+      const m = raw.match(/(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+      if (m) {
+        const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+        if (!isNaN(d)) return d;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function unescapePdfString(s) {
+  return s.replace(/\\([nrtbf()\\])/g, (m, c) => ({ n: "\n", r: "\r", t: "\t", b: "\b", f: "\f", "(": "(", ")": ")", "\\": "\\" }[c] ?? c));
+}
+
+// PDF document title from /Info, without a full PDF parser: scan the head
+// (linearized) + tail (trailer) slices for /Title. Handles both literal
+// "(...)" strings (with \( \) \\ escapes) and <hex> (UTF-16BE BOM or latin1).
+function sniffPdfTitle(headBuf, tailBuf) {
+  try {
+    const text = new TextDecoder("latin1").decode(headBuf) + "\n" + new TextDecoder("latin1").decode(tailBuf);
+    let m = text.match(/\/Title\s*\(((?:\\.|[^\\()])*)\)/);
+    if (m && m[1].trim()) return unescapePdfString(m[1]).trim();
+    m = text.match(/\/Title\s*<([0-9A-Fa-f\s]+)>/);
+    if (m) {
+      const hex = m[1].replace(/\s+/g, "");
+      if (hex.length >= 2 && hex.length % 2 === 0) {
+        const bytes = new Uint8Array(hex.match(/../g).map((h) => parseInt(h, 16)));
+        const s =
+          bytes[0] === 0xfe && bytes[1] === 0xff
+            ? new TextDecoder("utf-16be").decode(bytes.subarray(2))
+            : new TextDecoder("latin1").decode(bytes);
+        if (s.trim()) return s.trim();
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function autoFilename({ titleInput, originalName, textBuf, pdfTitle, photoDate }) {
+  let base = (titleInput || "").trim() || pdfTitle || "";
   if (!base) {
     const orig = (originalName || "").replace(/\.[^/.]+$/, "").trim();
     if (orig && orig !== "file" && orig !== "blob") {
       base = orig;
     }
   }
-  if (!base && buf) {
+  if (!base && textBuf) {
     try {
-      const text = new TextDecoder().decode(buf.slice(0, 2000));
-      // look for first meaningful line (alphanumeric)
+      const text = new TextDecoder().decode(textBuf.slice(0, 2000));
+      // look for first meaningful line (alphanumeric). Slice wide here —
+      // whitespace is stripped below, so slicing tight would eat real chars
+      // (e.g. "Shopping List" must survive as "ShoppingLi", not "ShoppingL").
       const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => /[A-Za-z0-9]{3,}/.test(l));
-      if (lines[0]) base = lines[0].slice(0, 10);
+      if (lines[0]) base = lines[0].slice(0, 40);
     } catch {}
   }
   if (!base) {
@@ -245,7 +326,7 @@ function autoFilename(originalName, titleInput, buf) {
   }
   base = base.replace(/\s+/g, "").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 10) || "file";
   const ext = extOf(originalName) || "bin";
-  const d = new Date();
+  const d = photoDate instanceof Date && !isNaN(photoDate) ? photoDate : new Date();
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yyyy = d.getFullYear();
@@ -582,13 +663,33 @@ export default {
         }
       }
 
-      // Only the first 2KB is buffered (for title sniffing); the File itself
-      // is handed straight to R2 below, so the worker never holds a second
-      // full copy of the body in memory.
+      // Content sniffing by type (slices only — the File itself is handed
+      // straight to R2 below, so the worker never holds a second full copy
+      // of the body in memory):
+      //   text-likes → first 2KB, first meaningful line
+      //   pdf       → /Title from head + tail slices (trailer lives at end)
+      //   images    → EXIF shoot date (used for DDMMYYYY, not upload date)
+      //   anything else (zip, video, audio, …) → original filename as-is
+      const ext = extOf(file.name || "");
       const head = await file.slice(0, 2000).arrayBuffer();
+      let pdfTitle = null;
+      let photoDate = null;
+      try {
+        if (ext === "pdf") {
+          const h = await file.slice(0, PDF_HEAD_BYTES).arrayBuffer();
+          const tailStart = Math.max(0, file.size - PDF_TAIL_BYTES);
+          const t = tailStart > 0 ? await file.slice(tailStart).arrayBuffer() : h;
+          pdfTitle = sniffPdfTitle(h, t);
+        } else if (IMAGE_EXTS.has(ext)) {
+          const imgHead = await file.slice(0, Math.min(file.size, EXIF_HEAD_BYTES)).arrayBuffer();
+          photoDate = await sniffPhotoTakenAt(imgHead);
+        }
+      } catch {}
       const titleInput = (form.get("title") || "").toString().slice(0, 200);
       const category = (form.get("category") || "").toString().slice(0, 100);
-      const filename = sanitizeFilename(autoFilename(file.name || "file", titleInput, head));
+      const filename = sanitizeFilename(
+        autoFilename({ titleInput, originalName: file.name || "file", textBuf: head, pdfTitle, photoDate })
+      );
       const contentType = guessContentType(filename, file.type);
       // Title keeps its spaces (shown in the dashboard); only the stored
       // filename is squished. No title → NULL, dashboard shows the filename.
