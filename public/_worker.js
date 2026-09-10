@@ -118,6 +118,23 @@ function json(data, status = 200) {
   });
 }
 
+// Structured single-line JSON logs — queryable in Cloudflare Logs
+// (e.g. `level = "error"`). Errors serialize to their message only;
+// use fields for ids/sizes so messages stay constant and groupable.
+function log(level, msg, fields = {}) {
+  try {
+    const out = { t: new Date().toISOString(), level, msg };
+    for (const [k, v] of Object.entries(fields)) {
+      out[k] = v instanceof Error ? String(v.message || v) : v;
+    }
+    console.log(JSON.stringify(out));
+  } catch {
+    try {
+      console.log(`[${level}] ${msg}`);
+    } catch {}
+  }
+}
+
 // constant-time compare: hash both sides with SHA-256 first — the fixed-length
 // digest hides the token's length and mismatch position, and the digest
 // comparison loop runs in constant time.
@@ -164,13 +181,38 @@ async function generateMagicLink(env, email, origin) {
 }
 
 // Verify a magic link token and return the email (or null if invalid/expired)
+// Atomic consume: the UPDATE only matches unused, unexpired rows, so two
+// concurrent GETs can't both redeem the same link (old SELECT-then-UPDATE
+// had a replay race). Returns null on any failure — no reason oracle.
 async function verifyMagicLink(env, id) {
-  const row = await env.DB.prepare("SELECT email, expires_at, used FROM magic_links WHERE id = ?").bind(id).first();
-  if (!row) return null;
-  if (row.used === 1) return null;
-  if (row.expires_at < Date.now()) return null;
-  await env.DB.prepare("UPDATE magic_links SET used = 1 WHERE id = ?").bind(id).run();
-  return row.email;
+  try {
+    const upd = await env.DB.prepare(
+      "UPDATE magic_links SET used = 1 WHERE id = ? AND used = 0 AND expires_at > ?"
+    ).bind(id, Date.now()).run();
+    if (!upd.meta?.changes) return null;
+    const row = await env.DB.prepare("SELECT email FROM magic_links WHERE id = ?").bind(id).first();
+    return row?.email || null;
+  } catch {
+    return null;
+  }
+}
+
+// Optional email allowlist for /api/request-link. Set ALLOWED_EMAILS to a
+// comma-separated list; when set, only those addresses can mint links.
+// Unset (default) preserves the old open behavior for single-user setups.
+function emailAllowed(env, email) {
+  const raw = (env.ALLOWED_EMAILS || "").trim();
+  if (!raw) return true;
+  const allowed = raw.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
+  return allowed.includes(email.toLowerCase());
+}
+
+// Best-effort prune of expired links (table would otherwise grow forever).
+// Runs inside request-link; failures are swallowed by design.
+async function pruneMagicLinks(env) {
+  try {
+    await env.DB.prepare("DELETE FROM magic_links WHERE expires_at < ?").bind(Date.now()).run();
+  } catch {}
 }
 
 // ---- storage quota (default = 10GB R2 free tier) -------------------------
@@ -200,7 +242,7 @@ async function audit(env, action, docId = null, filename = null, detail = null) 
       .bind(action, docId, filename, detail, Date.now())
       .run();
   } catch (e) {
-    console.error("audit write failed:", e);
+    log("error", "audit write failed", { error: e });
   }
 }
 
@@ -347,7 +389,7 @@ async function reconcile(env) {
     ({ results: rows } = await env.DB.prepare("SELECT id, filename, etag FROM docs").all());
   } catch (e) {
     report.errors++;
-    console.error("reconcile: list failed:", e);
+    log("error", "reconcile list failed", { error: e });
     return report;
   }
   const rowIdSet = new Set();
@@ -371,7 +413,7 @@ async function reconcile(env) {
       }
     } catch (e) {
       report.errors++;
-      console.error(`reconcile: head ${row.id} failed:`, e);
+      log("error", "reconcile head failed", { id: row.id, error: e });
       continue;
     }
     if (!obj) {
@@ -381,7 +423,7 @@ async function reconcile(env) {
         report.droppedRows++;
       } catch (e) {
         report.errors++;
-        console.error(`reconcile: drop row ${row.id} failed:`, e);
+        log("error", "reconcile drop row failed", { id: row.id, error: e });
       }
     }
   }
@@ -404,7 +446,7 @@ async function reconcile(env) {
     }
   } catch (e) {
     report.errors++;
-    console.error("reconcile: bucket list failed:", e);
+    log("error", "reconcile bucket list failed", { error: e });
   }
 
   return report;
@@ -440,21 +482,27 @@ export default {
       const range = req.headers.get("Range");
 
       // For HEAD or Range requests, fetch metadata first via head()
-      // to prevent downloading full object bodies unnecessarily
+      // to prevent downloading full object bodies unnecessarily.
+      // R2 outage → 503 (retryable), never an unhandled rejection.
       let obj;
       let key = `p/${id}`;
-      if (isHead || range) {
-        obj = await env.BUCKET.head(`p/${id}`);
-        if (!obj) {
-          obj = await env.BUCKET.head(`p/${id}.pdf`);
-          key = `p/${id}.pdf`;
+      try {
+        if (isHead || range) {
+          obj = await env.BUCKET.head(`p/${id}`);
+          if (!obj) {
+            obj = await env.BUCKET.head(`p/${id}.pdf`);
+            key = `p/${id}.pdf`;
+          }
+        } else {
+          obj = await env.BUCKET.get(`p/${id}`);
+          if (!obj) {
+            obj = await env.BUCKET.get(`p/${id}.pdf`);
+            key = `p/${id}.pdf`;
+          }
         }
-      } else {
-        obj = await env.BUCKET.get(`p/${id}`);
-        if (!obj) {
-          obj = await env.BUCKET.get(`p/${id}.pdf`);
-          key = `p/${id}.pdf`;
-        }
+      } catch (e) {
+        log("error", "serve R2 failed", { id, error: e });
+        return new Response("Storage unavailable, try again", { status: 503 });
       }
       if (!obj) return new Response("File not found", { status: 404 });
 
@@ -535,17 +583,18 @@ export default {
     // its open-mode warning banner without an authenticated round-trip.
     // When Cloudflare Access is enabled, also reports the authenticated user.
     if (path === "/api/health") {
+      // Public by design (uptime checks). Reports only whether auth is
+      // enforced — never *who* is authenticated (no emails here; the
+      // session cookie is validated but its identity stays server-side).
       const accessAuth = req.headers.get("cf-access-authenticated") === "true";
-      const accessUser = req.headers.get("cf-access-user-email") || null;
-      // Check for magic link session cookie
+      let magicAuthed = false;
       const cookie = req.headers.get("Cookie") || "";
       const m = cookie.match(/filo_session=([A-Za-z0-9-]+)/);
-      let magicUser = null;
       if (m) {
-        const row = await env.DB.prepare("SELECT email FROM magic_links WHERE id = ? AND used = 1 AND expires_at > ?").bind(m[1], Date.now()).first();
-        if (row?.email) magicUser = row.email;
+        const row = await env.DB.prepare("SELECT id FROM magic_links WHERE id = ? AND used = 1 AND expires_at > ?").bind(m[1], Date.now()).first();
+        magicAuthed = !!row;
       }
-      return json({ ok: true, time: Date.now(), auth: Boolean(env.UPLOAD_TOKEN) || accessAuth || !!magicUser, user: accessUser || magicUser });
+      return json({ ok: true, time: Date.now(), auth: Boolean(env.UPLOAD_TOKEN) || accessAuth || magicAuthed });
     }
 
     // API: Request a magic link — POST /api/request-link
@@ -557,6 +606,10 @@ export default {
       if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
         return json({ error: "A valid email address is required" }, 400);
       }
+      if (!emailAllowed(env, email)) {
+        return json({ error: "Email not allowed" }, 403);
+      }
+      await pruneMagicLinks(env);
       const id = nanoid(16);
       const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
       try {
@@ -564,14 +617,13 @@ export default {
           .bind(id, email, expiresAt, Date.now())
           .run();
       } catch (e) {
-        console.error("magic link insert failed:", e);
+        log("error", "magic link insert failed", { error: e });
         return json({ error: "Could not create login link" }, 500);
       }
       const origin = `${url.protocol}//${url.host}`;
       const link = `${origin}/api/login/${id}`;
-      // Log the link to console — in production you'd send an actual email
-      console.log(`Magic link for ${email}: ${link}`);
-      // Return the link so the user can click it (in dev/test)
+      // Returned in-band (there's no SMTP wired up); NOT logged — workers
+      // logs are persistent and the link is a live credential.
       return json({ ok: true, link, email, expires_in: 24 * 3600 });
     }
 
@@ -587,7 +639,7 @@ export default {
         return new Response("Invalid or expired login link", { status: 400 });
       }
       const headers = new Headers();
-      headers.set("Set-Cookie", `filo_session=${id}; HttpOnly; SameSite=Strict; Max-Age=${24 * 3600}; Path=/`);
+      headers.set("Set-Cookie", `filo_session=${id}; HttpOnly; Secure; SameSite=Strict; Max-Age=${24 * 3600}; Path=/`);
       headers.set("Location", "/");
       return new Response(null, { status: 302, headers });
     }
@@ -636,7 +688,7 @@ export default {
           .first();
         return json({ docs: results || [], total: countRow?.total || 0, offset });
       } catch (e) {
-        console.error("list failed:", e);
+        log("error", "list failed", { error: e });
         return json({ error: "Failed to list files" }, 500);
       }
     }
@@ -717,7 +769,7 @@ export default {
           break;
         } catch (e) {
           if (!/UNIQUE constraint failed/i.test(String(e.message || ""))) {
-            console.error("insert failed:", e);
+            log("error", "insert failed", { error: e });
             return json({ error: "Failed to save file metadata" }, 500);
           }
           // id collision — astronomically rare, try the next candidate
@@ -738,7 +790,8 @@ export default {
         if (etag) {
           await env.DB.prepare("UPDATE docs SET etag = ? WHERE id = ?").bind(etag, id).run().catch(() => {});
         }
-        await audit(env, "upload", id, filename, `${file.size} bytes`);
+        // fire-and-forget: audit must never add tail latency to uploads
+        ctx.waitUntil(audit(env, "upload", id, filename, `${file.size} bytes`));
         const base = `${url.protocol}//${getSafeHost(req, url)}`;
         return json({
           id,
@@ -750,13 +803,16 @@ export default {
         });
       } catch (e) {
         // rollback the row so it doesn't point at a missing object
-        console.error("r2 put failed:", e);
+        log("error", "r2 put failed", { error: e });
         await env.DB.prepare("DELETE FROM docs WHERE id = ?").bind(id).run().catch(() => {});
         return json({ error: "Failed to store file" }, 500);
       }
     }
 
-    // API: Delete — validate id to prevent injection
+    // API: Delete — validate id to prevent injection.
+    // Best-effort on both R2 keys (legacy second): a failed object delete
+    // must not stop the row delete, and vice versa — reconcile converges
+    // whatever is left (orphan objects are reported, never auto-deleted).
     if (path.startsWith("/api/delete/") && req.method === "DELETE") {
       const id = path.slice("/api/delete/".length).split("/")[0];
       if (!id || !/^[A-Za-z0-9]{6,12}$/.test(id)) return json({ error: "Invalid id" }, 400);
@@ -765,10 +821,23 @@ export default {
         const row = await env.DB.prepare("SELECT filename FROM docs WHERE id = ?").bind(id).first();
         filename = row?.filename || null;
       } catch {}
-      await env.BUCKET.delete(`p/${id}`);
-      await env.BUCKET.delete(`p/${id}.pdf`); // legacy cleanup
-      await env.DB.prepare("DELETE FROM docs WHERE id = ?").bind(id).run();
-      await audit(env, "delete", id, filename);
+      const errs = [];
+      for (const k of [`p/${id}`, `p/${id}.pdf`]) {
+        try {
+          await env.BUCKET.delete(k);
+        } catch (e) {
+          errs.push(k);
+          log("error", "delete R2 failed", { id, key: k, error: e });
+        }
+      }
+      try {
+        await env.DB.prepare("DELETE FROM docs WHERE id = ?").bind(id).run();
+      } catch (e) {
+        log("error", "delete D1 failed", { id, error: e });
+        return json({ error: "Delete failed, try again" }, 500);
+      }
+      ctx.waitUntil(audit(env, "delete", id, filename));
+      if (errs.length) return json({ ok: true, id, warnings: errs.map((k) => `object ${k} may remain`) });
       return json({ ok: true, id });
     }
 
@@ -784,16 +853,27 @@ export default {
         return json({ error: "Invalid JSON body" }, 400);
       }
       const title = (body.title || "").toString().trim().slice(0, 200) || null;
-      const row = await env.DB.prepare("SELECT filename, title, category FROM docs WHERE id = ?").bind(id).first();
+      let row;
+      try {
+        row = await env.DB.prepare("SELECT filename, title, category FROM docs WHERE id = ?").bind(id).first();
+      } catch (e) {
+        log("error", "rename lookup failed", { id, error: e });
+        return json({ error: "Rename failed, try again" }, 500);
+      }
       if (!row) return json({ error: "Not found" }, 404);
       const newCategory =
         body.category !== undefined
           ? (body.category || "").toString().trim().slice(0, 100) || null
           : row.category;
-      await env.DB.prepare("UPDATE docs SET title = ?, category = ? WHERE id = ?")
-        .bind(title, newCategory, id)
-        .run();
-      await audit(env, "rename", id, row.filename, `title: "${row.title ?? "—"}" → "${title ?? "—"}"`);
+      try {
+        await env.DB.prepare("UPDATE docs SET title = ?, category = ? WHERE id = ?")
+          .bind(title, newCategory, id)
+          .run();
+      } catch (e) {
+        log("error", "rename update failed", { id, error: e });
+        return json({ error: "Rename failed, try again" }, 500);
+      }
+      ctx.waitUntil(audit(env, "rename", id, row.filename, `title: "${row.title ?? "—"}" → "${title ?? "—"}"`));
       return json({ ok: true, id, title, category: newCategory });
     }
 
@@ -805,7 +885,7 @@ export default {
         ).all();
         return json({ actions: results || [] });
       } catch (e) {
-        console.error("activity failed:", e);
+        log("error", "activity failed", { error: e });
         return json({ error: "Failed to read activity" }, 500);
       }
     }
@@ -815,7 +895,7 @@ export default {
     // gone, migrates legacy p/<id>.pdf objects to p/<id>, reports orphans.
     if (path === "/api/reconcile" && req.method === "POST") {
       const report = await reconcile(env);
-      await audit(env, "cleanup", null, null, JSON.stringify(report));
+      ctx.waitUntil(audit(env, "cleanup", null, null, JSON.stringify(report)));
       return json({ ok: true, report });
     }
 
@@ -832,7 +912,7 @@ export default {
           quota: storageQuotaBytes(env), // bytes; UI shows the bar against this
         });
       } catch (e) {
-        console.error("storage failed:", e);
+        log("error", "storage failed", { error: e });
         return json({ error: "Failed to read storage stats" }, 500);
       }
     }
@@ -849,13 +929,15 @@ export default {
   },
 
   // Weekly cron (wrangler.toml [triggers]) — keep D1 honest against R2.
+  // Belt-and-braces .catch: reconcile()/audit() guard internally, but a
+  // rejected waitUntil would mark the whole cron run failed in logs.
   async scheduled(event, env, ctx) {
     ctx.waitUntil(
       (async () => {
         const report = await reconcile(env);
         await audit(env, "cleanup", null, null, JSON.stringify(report));
-        console.log("reconcile:", JSON.stringify(report));
-      })()
+        log("info", "reconcile finished", { report });
+      })().catch((e) => log("error", "scheduled reconcile failed", { error: e }))
     );
   },
 };

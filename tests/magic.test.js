@@ -67,7 +67,47 @@ describe("magic link auth", () => {
     expect(r.status).toBe(400);
   });
 
-  it("health reports auth:true and user when session cookie present", async () => {
+  it("consumes a link atomically — replaying it fails", async () => {
+    const r = await fetch("https://example.com/api/request-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "user@example.com" }),
+    });
+    const id = (await r.json()).link.split("/").pop();
+
+    const first = await fetch(`https://example.com/api/login/${id}`, { redirect: "manual" });
+    expect(first.status).toBe(302);
+    const second = await fetch(`https://example.com/api/login/${id}`, { redirect: "manual" });
+    expect(second.status).toBe(400);
+  });
+
+  it("prunes expired links when minting a new one", async () => {
+    await env.DB.prepare(
+      "INSERT INTO magic_links (id, email, expires_at, used, created_at) VALUES (?, ?, ?, 0, ?)"
+    ).bind("expired0000000001", "old@example.com", Date.now() - 1000, Date.now() - 2000).run();
+
+    await fetch("https://example.com/api/request-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "user@example.com" }),
+    });
+
+    const gone = await env.DB.prepare("SELECT id FROM magic_links WHERE id = ?").bind("expired0000000001").first();
+    expect(gone).toBeNull();
+  });
+
+  it("sets a Secure session cookie", async () => {
+    const r = await fetch("https://example.com/api/request-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "user@example.com" }),
+    });
+    const id = (await r.json()).link.split("/").pop();
+    const verify = await fetch(`https://example.com/api/login/${id}`, { redirect: "manual" });
+    expect(verify.headers.get("Set-Cookie")).toContain("Secure");
+  });
+
+  it("health reports auth:true (but no identity) when session cookie present", async () => {
     // Request link, verify, grab cookie
     const r = await fetch("https://example.com/api/request-link", {
       method: "POST",
@@ -83,6 +123,6 @@ describe("magic link auth", () => {
     });
     const j = await health.json();
     expect(j.auth).toBe(true);
-    expect(j.user).toBe("user@example.com");
+    expect(j.user).toBeUndefined();
   });
 });

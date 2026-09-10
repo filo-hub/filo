@@ -172,4 +172,10 @@ describe("delete", () => {
     const r = await fetch("https://example.com/api/delete/;DROP TABLE docs", { method: "DELETE" });
     expect(r.status).toBe(400);
   });
+
+  it("is idempotent — deleting a missing id still returns ok", async () => {
+    const r = await fetch("https://example.com/api/delete/zzzzzzzz", { method: "DELETE" });
+    expect(r.status).toBe(200);
+    expect((await r.json()).ok).toBe(true);
+  });
 });
