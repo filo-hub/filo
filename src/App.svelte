@@ -247,7 +247,7 @@
                 </td></tr>
               {:else}
                 {#each filtered as d (d.id)}
-                  <tr class="border-b border-zinc-100 dark:border-zinc-800 {d.id===freshId?'bg-emerald-50/70 dark:bg-emerald-950/30':'hover:bg-zinc-50 dark:hover:bg-zinc-800/40'} transition-colors">
+                  <tr class="border-b border-zinc-100 dark:border-zinc-800 transition-colors {d.id===freshId?'bg-emerald-50/70 dark:bg-emerald-950/30 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/50':'hover:bg-zinc-50 dark:hover:bg-zinc-800/40'}">
                     <td class="px-4 py-[14px]">
                       <div class="flex gap-2.5 items-center">
                         <span aria-hidden="true" class="w-8 h-8 shrink-0 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-700/60 grid place-items-center text-[15px]">{fileIcon(d.filename)}</span>
