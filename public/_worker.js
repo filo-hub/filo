@@ -428,8 +428,11 @@ function autoFilename({ titleInput, originalName, textBuf, pdfTitle, photoDate }
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yyyy = d.getFullYear();
-  const check = nanoid(8);
-  return `${base}${dd}${mm}${yyyy}${check}.${ext}`;
+  // No uniqueness suffix here on purpose: identity lives in the /p/<id>
+  // link (R2 key + D1 primary key). Two uploads with the same title on the
+  // same day simply share a filename under different ids — filenames are
+  // labels, not keys.
+  return `${base}${dd}${mm}${yyyy}.${ext}`;
 }
 
 // Weekly maintenance (cron + POST /api/reconcile): make D1 agree with R2.

@@ -58,7 +58,7 @@ describe("upload", () => {
     expect(j.message).toMatch(/permanent/i);
 
     const row = await env.DB.prepare("SELECT filename, title FROM docs WHERE id = ?").bind(j.id).first();
-    expect(row.filename).toMatch(/^MyDoc\d{8}[A-Za-z0-9]{8}\.txt$/);
+    expect(row.filename).toMatch(/^MyDoc\d{8}\.txt$/);
     expect(row.title).toBe("My Doc");
 
     const audit = await env.DB.prepare("SELECT action, doc_id FROM actions ORDER BY ts DESC").first();

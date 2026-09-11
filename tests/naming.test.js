@@ -59,8 +59,8 @@ describe("content-based naming", () => {
   it("names a PDF from its /Title (literal string)", async () => {
     const { r, j } = await upload(new File([PDF_TITLED], "scan.pdf", { type: "application/pdf" }));
     expect(r.status).toBe(200);
-    // "Quarterly Report Q3" -> squish -> "QuarterlyR" (10) + date + 8-char check
-    expect(j.filename).toMatch(/^QuarterlyR\d{8}[A-Za-z0-9]{8}\.pdf$/);
+    // "Quarterly Report Q3" -> squish -> "QuarterlyR" (10) + date
+    expect(j.filename).toMatch(/^QuarterlyR\d{8}\.pdf$/);
     // no typed title → title column stays NULL (dashboard shows filename)
     const row = await env.DB.prepare("SELECT title FROM docs WHERE id = ?").bind(j.id).first();
     expect(row.title).toBeNull();
@@ -69,13 +69,13 @@ describe("content-based naming", () => {
   it("names a PDF from a hex-encoded /Title", async () => {
     const { r, j } = await upload(new File([PDF_HEX_TITLE], "doc.pdf", { type: "application/pdf" }));
     expect(r.status).toBe(200);
-    expect(j.filename).toMatch(/^Hello\d{8}[A-Za-z0-9]{8}\.pdf$/);
+    expect(j.filename).toMatch(/^Hello\d{8}\.pdf$/);
   });
 
   it("falls back to the original name when a PDF has no title", async () => {
     const { r, j } = await upload(new File([PDF_NO_TITLE], "scan.pdf", { type: "application/pdf" }));
     expect(r.status).toBe(200);
-    expect(j.filename).toMatch(/^scan\d{8}[A-Za-z0-9]{8}\.pdf$/);
+    expect(j.filename).toMatch(/^scan\d{8}\.pdf$/);
   });
 
   it("typed title beats embedded PDF title", async () => {
@@ -83,7 +83,7 @@ describe("content-based naming", () => {
       title: "Custom",
     });
     expect(r.status).toBe(200);
-    expect(j.filename).toMatch(/^Custom\d{8}[A-Za-z0-9]{8}\.pdf$/);
+    expect(j.filename).toMatch(/^Custom\d{8}\.pdf$/);
   });
 
   it("dates a photo by EXIF shoot date, not upload date", async () => {
@@ -93,7 +93,7 @@ describe("content-based naming", () => {
     );
     expect(r.status).toBe(200);
     // fixture DateTimeOriginal = 2021-05-04 → 04052021, not today
-    expect(j.filename).toMatch(/^IMG_123404052021[A-Za-z0-9]{8}\.jpg$/);
+    expect(j.filename).toMatch(/^IMG_123404052021\.jpg$/);
   });
 
   it("falls back to the upload date when a photo has no EXIF", async () => {
@@ -102,7 +102,7 @@ describe("content-based naming", () => {
       new File([bytes], "shot.jpg", { type: "image/jpeg" })
     );
     expect(r.status).toBe(200);
-    expect(j.filename).toMatch(new RegExp(`^shot${todayStamp()}[A-Za-z0-9]{8}\\.jpg$`));
+    expect(j.filename).toMatch(new RegExp(`^shot${todayStamp()}\\.jpg$`));
   });
 
   it("keeps original-name fallback for opaque types (zip)", async () => {
@@ -110,7 +110,7 @@ describe("content-based naming", () => {
       new File(["PK\x03\x04binary-blob"], "backup 2024.zip", { type: "application/zip" })
     );
     expect(r.status).toBe(200);
-    expect(j.filename).toMatch(new RegExp(`^backup2024${todayStamp()}[A-Za-z0-9]{8}\\.zip$`));
+    expect(j.filename).toMatch(new RegExp(`^backup2024${todayStamp()}\\.zip$`));
   });
 
   it("puts the filename in the URL so tabs show the name, not the id", async () => {
@@ -133,6 +133,6 @@ describe("content-based naming", () => {
     const r = await fetch("https://example.com/api/upload", { method: "POST", body: fd });
     const j = await r.json();
     expect(r.status).toBe(200);
-    expect(j.filename).toMatch(new RegExp(`^ShoppingLi${todayStamp()}[A-Za-z0-9]{8}\\.bin$`));
+    expect(j.filename).toMatch(new RegExp(`^ShoppingLi${todayStamp()}\\.bin$`));
   });
 });
