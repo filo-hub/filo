@@ -32,5 +32,9 @@ crons = ["0 6 * * 1"]
 # Optional: storage quota for the dashboard bar + upload check (default 10240 = 10GB)
 # MAX_STORAGE_MB = 10240
 
+# Magic-link allowlist: only this address can mint login links.
+[vars]
+ALLOWED_EMAILS = "dinesh.io@outlook.com"
+
 [observability]
 enabled = true

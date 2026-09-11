@@ -16,3 +16,7 @@ bucket_name = "filo-files"
 binding = "DB"
 database_name = "filo-db"
 database_id = "351337b5-6315-4004-961d-af7faa7288ec"
+
+# Must mirror wrangler.toml's vars.
+[vars]
+ALLOWED_EMAILS = "dinesh.io@outlook.com"
