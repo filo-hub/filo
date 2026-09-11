@@ -121,7 +121,7 @@
   <!-- sidebar -->
   <aside class="hidden md:flex w-[220px] shrink-0 bg-white dark:bg-zinc-900 border-r border-zinc-200 dark:border-zinc-800 flex-col">
     <div class="h-[56px] px-5 flex items-center gap-2.5 border-b border-zinc-200 dark:border-zinc-800">
-      <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-600 to-violet-600 text-white grid place-items-center font-bold text-[13px] shadow-sm" aria-hidden="true">f</div>
+      <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" fill="#4f46e5" viewBox="0 0 16 16" class="shrink-0" aria-hidden="true"><path d="m.5 3 .04.87a2 2 0 0 0-.342 1.311l.637 7A2 2 0 0 0 2.826 14H9v-1H2.826a1 1 0 0 1-.995-.91l-.637-7A1 1 0 0 1 2.19 4h11.62a1 1 0 0 1 .996 1.09L14.54 8h1.005l.256-2.819A2 2 0 0 0 13.81 3H9.828a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 6.172 1H2.5a2 2 0 0 0-2 2m5.672-1a1 1 0 0 1 .707.293L7.586 3H2.19q-.362.002-.683.12L1.5 2.98a1 1 0 0 1 1-.98z"/><path d="M15.854 10.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.707 0l-1.5-1.5a.5.5 0 0 1 .707-.708l1.146 1.147 2.646-2.647a.5.5 0 0 1 .708 0"/></svg>
       <div class="font-bold text-[19px] tracking-tight leading-none">filo</div>
     </div>
     <nav class="p-3 flex-1 space-y-1">
@@ -165,7 +165,7 @@
       <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-panel overflow-hidden shadow-sm shrink-0">
         <div class="px-5 py-4 md:px-6">
           <div class="text-center">
-            <h1 class="text-[19px] font-bold tracking-[-0.02em] leading-tight">Upload once, <span class="text-zinc-500 dark:text-zinc-400 font-semibold">link forever.</span></h1>
+            <h1 class="text-[19px] font-bold tracking-[-0.02em] leading-tight">Upload once, <span class="bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">link forever.</span></h1>
           </div>
             <label
               ondragover={(e)=>{e.preventDefault(); drag=true}}
