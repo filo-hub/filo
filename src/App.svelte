@@ -164,9 +164,9 @@
       <!-- upload : one stacked panel, fixed heights so nothing shifts -->
       <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-panel overflow-hidden shadow-sm">
         <div class="p-5 md:p-6">
-          <div class="text-center">
+          <div class="text-center pt-1">
             <h1 class="text-[28px] font-bold tracking-[-0.03em] leading-[1.15]">Upload once, link forever.</h1>
-            <p class="mt-1 text-[12px] text-zinc-500 dark:text-zinc-400">PDF · image · text — named automatically · 25MB max</p>
+            <p class="mt-2 text-[13px] text-zinc-500 dark:text-zinc-400">PDF · image · text — named automatically · 25MB max</p>
           </div>
             <label
               ondragover={(e)=>{e.preventDefault(); drag=true}}
@@ -176,12 +176,15 @@
               onclick={()=>fileInput?.click()}
               onkeydown={(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault(); fileInput?.click()}}}
               tabindex="0" role="button" aria-label="Upload a file: drop, press Enter, or click to browse"
-              class="mt-4 border-2 border-dashed rounded-2xl h-40 shrink-0 flex flex-col justify-center items-center gap-2 px-6 text-center cursor-pointer transition focus-visible:outline-2 focus-visible:outline-indigo-600 focus-visible:outline-offset-2 {drag?'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40':'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-white dark:hover:bg-zinc-800 hover:border-zinc-900 dark:hover:border-zinc-400'}"
+              class="mt-5 border-2 border-dashed rounded-2xl h-44 shrink-0 flex flex-col justify-center items-center gap-2.5 px-6 text-center cursor-pointer transition-all duration-150 focus-visible:outline-2 focus-visible:outline-indigo-600 focus-visible:outline-offset-2 {drag?'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 scale-[1.01] shadow-lg shadow-indigo-600/10':'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-white dark:hover:bg-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-500'}"
             >
-              <div class="w-11 h-11 shrink-0 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-sm grid place-items-center text-lg" aria-hidden="true">⬆</div>
+              <div class="w-11 h-11 shrink-0 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-sm grid place-items-center text-lg transition-transform duration-150 {drag?'scale-110 -translate-y-0.5':''}" aria-hidden="true">⬆</div>
             <div class="min-w-0 max-w-full">
               {#if picked}
-                <div class="text-[13px] font-bold truncate">{picked.name}</div>
+                <div class="flex items-center justify-center gap-2 min-w-0">
+                  <span class="text-[13px] font-bold truncate">{picked.name}</span>
+                  <button onclick={(e)=>{e.stopPropagation(); onPick(null)}} aria-label="Remove selected file" class="w-5 h-5 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300 grid place-items-center text-[10px] font-bold hover:bg-zinc-300 dark:hover:bg-zinc-600">✕</button>
+                </div>
                 <div class="mt-0.5 text-[12px] text-zinc-500 dark:text-zinc-400 tabular-nums">{fmtSize(picked.size)} · click or drop to replace</div>
               {:else}
                 <div class="text-[13px] font-bold">Drop a file here, or click to browse</div>
@@ -240,24 +243,24 @@
                 </td></tr>
               {:else}
                 {#each filtered as d (d.id)}
-                  <tr class="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-                    <td class="px-4 py-3">
+                  <tr class="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
+                    <td class="px-4 py-[14px]">
                       <div class="flex gap-2.5 items-center">
                         <span aria-hidden="true" class="w-8 h-8 shrink-0 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-700/60 grid place-items-center text-[15px]">{fileIcon(d.filename)}</span>
                         <span class="min-w-0">
-                          <span class="block font-bold text-[12px] truncate max-w-[160px]">{d.filename}</span>
+                          <span class="block font-semibold text-[13px] truncate max-w-[160px]">{d.filename}</span>
                           {#if d.title}<span class="block text-[11px] text-zinc-500 dark:text-zinc-400 truncate max-w-[160px]">{d.title}</span>{/if}
                         </span>
                       </div>
                     </td>
-                    <td class="px-4 py-3 text-zinc-600 dark:text-zinc-400 hidden sm:table-cell">{fmtSize(d.size)}</td>
-                    <td class="px-4 py-3 text-zinc-500 dark:text-zinc-400 text-[12px] hidden sm:table-cell">{fmtDate(d.uploaded_at)}</td>
-                    <td class="px-4 py-3">
+                    <td class="px-4 py-[14px] text-zinc-600 dark:text-zinc-400 tabular-nums hidden sm:table-cell">{fmtSize(d.size)}</td>
+                    <td class="px-4 py-[14px] text-zinc-500 dark:text-zinc-400 text-[12px] hidden sm:table-cell">{fmtDate(d.uploaded_at)}</td>
+                    <td class="px-4 py-[14px]">
                       <div class="flex gap-1.5 items-center flex-wrap">
-                        <button onclick={()=>copy(location.origin+'/p/'+d.id)} class="font-mono text-[11px] font-bold text-indigo-600 dark:text-indigo-400 border-b border-dashed">{location.host}/p/{d.id}</button>
-                        <button onclick={()=>copy(location.origin+'/p/'+d.id)} class="px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-700 rounded-full text-[11px] font-bold bg-white dark:bg-transparent min-h-[32px]">Copy</button>
-                        <a href={location.origin+'/p/'+d.id} target="_blank" class="px-3 py-1.5 rounded-full bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-[11px] font-bold min-h-[32px] inline-flex items-center">View</a>
-                        <button onclick={()=>del(d.id)} aria-label="Delete {d.filename}" class="px-2.5 py-1.5 rounded-full border border-zinc-200 dark:border-zinc-700 text-[11px] font-bold min-h-[32px]">Del</button>
+                        <button onclick={()=>copy(location.origin+'/p/'+d.id)} class="font-mono text-[11px] font-bold text-indigo-600 dark:text-indigo-400 border-b border-dashed border-indigo-300 dark:border-indigo-800 hover:border-indigo-600 dark:hover:border-indigo-400 transition-colors">{location.host}/p/{d.id}</button>
+                        <button onclick={()=>copy(location.origin+'/p/'+d.id)} class="px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-700 rounded-full text-[11px] font-bold bg-white dark:bg-transparent min-h-[32px] hover:bg-zinc-100 dark:hover:bg-zinc-800 active:scale-[.97] transition">Copy</button>
+                        <a href={location.origin+'/p/'+d.id} target="_blank" class="px-3 py-1.5 rounded-full bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-[11px] font-bold min-h-[32px] inline-flex items-center hover:bg-black dark:hover:bg-white active:scale-[.97] transition">View</a>
+                        <button onclick={()=>del(d.id)} aria-label="Delete {d.filename}" class="px-2.5 py-1.5 rounded-full border border-zinc-200 dark:border-zinc-700 text-[11px] font-bold min-h-[32px] hover:border-red-300 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400 active:scale-[.97] transition">Del</button>
                       </div>
                     </td>
                   </tr>
