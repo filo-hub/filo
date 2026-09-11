@@ -8,8 +8,9 @@ import m1 from "../migrations/0001_docs.sql?raw";
 import m2 from "../migrations/0002_etag.sql?raw";
 import m3 from "../migrations/0003_actions.sql?raw";
 import m4 from "../migrations/0004_magic_links.sql?raw";
+import m5 from "../migrations/0005_rate_limits.sql?raw";
 
-const MIGRATIONS = [m1, m2, m3, m4];
+const MIGRATIONS = [m1, m2, m3, m4, m5];
 
 function statements(sql) {
   return sql

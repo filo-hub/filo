@@ -22,7 +22,7 @@ export default defineConfig({
         plugins: [cloudflareTest(pool())],
         test: {
           name: "app",
-          include: ["tests/api.test.js", "tests/files.test.js", "tests/maintenance.test.js", "tests/magic.test.js", "tests/naming.test.js"],
+          include: ["tests/api.test.js", "tests/files.test.js", "tests/maintenance.test.js", "tests/magic.test.js", "tests/naming.test.js", "tests/ratelimit.test.js"],
           setupFiles: ["./tests/setup.js"],
         },
       },

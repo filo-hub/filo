@@ -84,6 +84,22 @@ CI runs tests on every push/PR and gates both deploys on them.
 
 Requires `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID` secrets.
 
+## Backup & Restore
+
+Weekly automatic backup (`.github/workflows/backup.yml`, Sundays 02:00 UTC, plus `npm run backup` on demand):
+* **D1 dump** → `filo-backup/d1-<day>.sql` (day-of-month rotation, ~31 versions, self-pruning).
+* **R2 mirror** → `filo-backup/r2/p/<id>` per object, inventoried from D1 (deleted files linger — that's the point).
+
+Restore drill (run against a scratch DB/bucket first, never prod directly):
+```bash
+npx wrangler d1 export filo-db --remote --output ./pre-restore-$(date +%F).sql  # snapshot current state
+npx wrangler r2 object get filo-backup/d1-11.sql --file restore.sql --remote
+npx wrangler d1 execute filo-db --remote --file=./restore.sql
+npx wrangler r2 object get filo-backup/r2/p/<id> --file ./obj --remote
+npx wrangler r2 object put filo-files/p/<id> --file ./obj --remote
+```
+Verify with `GET /api/list` + byte-compare one download before calling it done.
+
 ## Local Dev
 
 Two terminals — vite for the Svelte frontend (proxies `/api` + `/p`), wrangler for the Worker:

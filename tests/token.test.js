@@ -3,7 +3,7 @@
 // worker instance (vitest-pool-workers gives each test file its own).
 // `import { env }` bindings come from wrangler.toml; extra vars come from
 // the `bindings` block vitest.config.js adds for this project.
-import { SELF } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
 
 const fetch = (...args) => SELF.fetch(...args);
@@ -63,5 +63,25 @@ describe("storage quota (MAX_STORAGE_MB=1)", () => {
     const r = await fetch("https://example.com/api/upload", { method: "POST", body: fd, headers: H });
     expect(r.status).toBe(507);
     expect(((await r.json()).error || "").toLowerCase()).toContain("quota");
+  });
+
+  it("never overshoots quota under concurrent uploads (insert-then-verify)", async () => {
+    // Two 600KB uploads race a 1MB quota. Whichever interleaving wins, the
+    // stored total must never exceed quota: the loser(s) roll back.
+    // (Both rejecting is acceptable — conservative direction; overshoot isn't.)
+    const racing = [0, 1].map(async (i) => {
+      const fd = new FormData();
+      fd.append("file", makeFile(600 * 1024), `race${i}.bin`);
+      return fetch("https://example.com/api/upload", { method: "POST", body: fd, headers: H });
+    });
+    const settled = await Promise.all(racing);
+    const codes = settled.map((r) => r.status).sort();
+    expect(codes.every((c) => c === 200 || c === 507)).toBe(true);
+    const total = await env.DB.prepare("SELECT COALESCE(SUM(size), 0) AS t FROM docs").first();
+    expect(total.t).toBeLessThanOrEqual(1024 * 1024);
+    // every 200 has its row; every 507 left no orphan row
+    // (earlier tests in this file leave small.bin behind — no reset here)
+    const rows = await env.DB.prepare("SELECT COUNT(*) AS n FROM docs").first();
+    expect(rows.n).toBeLessThanOrEqual(3);
   });
 });

@@ -13,6 +13,8 @@
     "deploy:pages": "npm run build && cp wrangler.toml .wrangler.worker.toml && (cp wrangler.pages.toml wrangler.toml && wrangler pages deploy dist --project-name fileo --branch main; STATUS=$?; mv .wrangler.worker.toml wrangler.toml; exit $STATUS)",
     "db:migrate": "wrangler d1 migrations apply filo-db --local",
     "db:migrate:remote": "wrangler d1 migrations apply filo-db --remote",
+    "db:export": "wrangler d1 export filo-db --remote --output ./backup-d1.sql",
+    "backup": "bash scripts/backup.sh",
     "db:migrate:old": "wrangler d1 execute filo-db --file=./migrations/0001_docs.sql",
     "cron:local": "curl -s \"http://localhost:8787/__scheduled?cron=0+6+*+*+1\" | head -c 2000",
     "r2:create": "wrangler r2 bucket create filo-files",

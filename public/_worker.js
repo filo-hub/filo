@@ -111,10 +111,16 @@ function nanoid(len = ID_LEN) {
 // requests need no CORS headers; files stay embeddable cross-origin via
 // <img>/<video>/direct links, which are not CORS-gated.
 
-function json(data, status = 200) {
+function json(data, status = 200, _origin = null, extraHeaders = null) {
+  // _origin is legacy (CORS is same-origin now); extraHeaders merges in
+  // extras like Retry-After without touching every call site.
   return new Response(JSON.stringify(data), {
     status,
-    headers: { "Content-Type": "application/json", "X-Content-Type-Options": "nosniff" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Content-Type-Options": "nosniff",
+      ...(extraHeaders || {}),
+    },
   });
 }
 
@@ -232,6 +238,55 @@ async function usedBytes(env) {
   } catch {
     return null;
   }
+}
+
+// ---- rate limiting (D1 fixed windows — accurate across isolates) ---------
+// Limits are per-scope keys ("upload:<ip>"); windows are fixed clock hours.
+// Approximate under concurrency (two racers can both slip under the cap by
+// one) — fine for abuse friction, not for exact accounting. Fails OPEN on
+// D1 errors (availability beats strictness) and logs loudly about it.
+const RATE_WINDOW_MS = 60 * 60 * 1000;
+const RATE_LIMITS = {
+  upload: 30, // 25MB files × 30/hr/IP — generous for a human, not for a script
+  requestLink: 5, // per IP and per email — link minting is the spam vector
+  login: 30, // 16-char ids are unguessable; this is just brute-force hygiene
+};
+
+function clientIp(req) {
+  return req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip") || "unknown";
+}
+
+// Returns null when allowed, or retry-after seconds when limited.
+async function throttled(env, scope, id, limit = RATE_LIMITS[scope], windowMs = RATE_WINDOW_MS) {
+  const now = Date.now();
+  const winStart = now - (now % windowMs);
+  const key = `${scope}:${id}`;
+  try {
+    // Opportunistic prune (~1% of calls) — keeps the table tiny.
+    if (Math.random() < 0.01) {
+      await env.DB.prepare("DELETE FROM rate_limits WHERE window_start < ?").bind(winStart).run().catch(() => {});
+    }
+    const row = await env.DB.prepare("SELECT count, window_start FROM rate_limits WHERE key = ?").bind(key).first();
+    if (!row || row.window_start < winStart) {
+      await env.DB.prepare(
+        "INSERT INTO rate_limits (key, count, window_start) VALUES (?, 1, ?) ON CONFLICT(key) DO UPDATE SET count = 1, window_start = ?"
+      ).bind(key, winStart, winStart).run();
+      return null;
+    }
+    if (row.count >= limit) {
+      return Math.max(1, Math.ceil((row.window_start + windowMs - now) / 1000));
+    }
+    await env.DB.prepare("UPDATE rate_limits SET count = count + 1 WHERE key = ?").bind(key).run();
+    return null;
+  } catch (e) {
+    log("error", "rate limit check failed", { key, error: e });
+    return null;
+  }
+}
+
+function rateLimited(retryAfter) {
+  const headers = { "Retry-After": String(retryAfter) };
+  return json({ error: `Too many requests, try again in ${retryAfter}s` }, 429, null, headers);
 }
 
 // Best-effort audit trail — never throws (an audit failure must not fail
@@ -609,6 +664,10 @@ export default {
       if (!emailAllowed(env, email)) {
         return json({ error: "Email not allowed" }, 403);
       }
+      const ipRl = await throttled(env, "requestLink", clientIp(req));
+      if (ipRl !== null) return rateLimited(ipRl);
+      const emailRl = await throttled(env, "requestLink", `email:${email}`);
+      if (emailRl !== null) return rateLimited(emailRl);
       await pruneMagicLinks(env);
       const id = nanoid(16);
       const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
@@ -633,6 +692,13 @@ export default {
       const id = path.slice("/api/login/".length).split("/")[0];
       if (!id || !/^[A-Za-z0-9]{16}$/.test(id)) {
         return new Response("Invalid link", { status: 400 });
+      }
+      const loginRl = await throttled(env, "login", clientIp(req));
+      if (loginRl !== null) {
+        return new Response(`Too many attempts, try again in ${loginRl}s`, {
+          status: 429,
+          headers: { "Retry-After": String(loginRl) },
+        });
       }
       const email = await verifyMagicLink(env, id);
       if (!email) {
@@ -695,6 +761,8 @@ export default {
 
     // API: Upload
     if (path === "/api/upload" && req.method === "POST") {
+      const rl = await throttled(env, "upload", clientIp(req));
+      if (rl !== null) return rateLimited(rl);
       let form;
       try {
         form = await req.formData();
@@ -776,6 +844,20 @@ export default {
         }
       }
       if (!id) return json({ error: "Failed to generate a unique id, try again" }, 500);
+
+      // Race-proof quota gate: the pre-check above is a fast path, but two
+      // concurrent uploads can both pass it. Every uploader therefore
+      // re-checks AFTER its row is committed and rolls itself back when the
+      // total (including its own row) exceeds quota. D1 serializes the
+      // writes, so at least the overshooting uploaders always observe the
+      // overshoot — the stored total can never exceed quota this way.
+      if (quota > 0) {
+        const total = await usedBytes(env);
+        if (total !== null && total > quota) {
+          await env.DB.prepare("DELETE FROM docs WHERE id = ?").bind(id).run().catch(() => {});
+          return json({ error: `Storage quota exceeded. ${fmtMB(0)}MB left of ${fmtMB(quota)}MB` }, 507);
+        }
+      }
 
       const key = `p/${id}`;
       try {

@@ -9,6 +9,9 @@ async function resetDb() {
   await env.DB.prepare("DELETE FROM docs").run();
   await env.DB.prepare("DELETE FROM actions").run();
   await env.DB.prepare("DELETE FROM magic_links").run();
+  // rate windows are per-file-worker shared: reset so mint-count tests
+  // never starve each other (all use the default client IP here)
+  await env.DB.prepare("DELETE FROM rate_limits").run();
 }
 
 beforeEach(resetDb);
