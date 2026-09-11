@@ -36,6 +36,30 @@
     docs = []
   }
 
+  // Email sign-in (magic link). No SMTP is wired up, so the login link is
+  // returned in-band — clicking it sets the session cookie via redirect.
+  let magicEmail = $state('')
+  let magicLink = $state(null)
+  let magicErr = $state('')
+  let magicBusy = $state(false)
+  async function requestMagicLink(){
+    magicErr = ''; magicLink = null
+    const email = magicEmail.trim()
+    if(!email) return
+    magicBusy = true
+    try{
+      const r = await fetch('/api/request-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      })
+      const j = await r.json().catch(() => ({}))
+      if(!r.ok) throw new Error(j.error || 'Request failed')
+      magicLink = j.link
+    }catch(e){ magicErr = e.message || 'Request failed' }
+    finally{ magicBusy = false }
+  }
+
   function fmtSize(b){
     if(b<1024) return b+' B'
     if(b<1024*1024) return (b/1024).toFixed(1)+' KB'
@@ -231,7 +255,23 @@
               </tr>
             </thead>
             <tbody>
-              {#if loading && !docs.length}
+              {#if locked}
+                <tr><td colspan="4" class="px-4 py-10 text-center">
+                  <div class="mx-auto w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-lg" aria-hidden="true">🔒</div>
+                  <div class="mt-2 text-[13px] font-bold">Locked</div>
+                  <div class="text-[12px] text-zinc-500 dark:text-zinc-400">Enter your access token above, or sign in by email.</div>
+                  {#if !magicLink}
+                    <div class="mt-3 mx-auto flex gap-2 max-w-[320px]">
+                      <input bind:value={magicEmail} placeholder="you@example.com" aria-label="Email address" type="email" autocomplete="email" onkeydown={(e)=>{if(e.key==='Enter')requestMagicLink()}} class="flex-1 min-w-0 px-3 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-transparent focus:bg-white dark:focus:bg-zinc-900 focus:border-zinc-900 dark:focus:border-zinc-100 focus-visible:outline-2 focus-visible:outline-indigo-600 text-[12px] text-left" />
+                      <button onclick={requestMagicLink} disabled={magicBusy} class="px-4 py-2 rounded-full bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-[12px] font-bold shrink-0 disabled:opacity-50">{magicBusy ? '…' : 'Email link'}</button>
+                    </div>
+                    {#if magicErr}<div class="mt-1.5 text-[12px] font-bold text-red-600 dark:text-red-400">{magicErr}</div>{/if}
+                  {:else}
+                    <a href={magicLink} class="mt-3 inline-block px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-[12px] font-bold">Open magic link →</a>
+                    <div class="mt-1 text-[11px] text-zinc-400">Valid 24h, single use. Check your inbox when SMTP is wired up.</div>
+                  {/if}
+                </td></tr>
+              {:else if loading && !docs.length}
                 {#each [0,1,2] as i (i)}
                   <tr class="border-b border-zinc-100 dark:border-zinc-800" aria-hidden="true">
                     <td class="px-4 py-3"><div class="h-3 w-32 rounded bg-zinc-100 dark:bg-zinc-800 animate-pulse"></div><div class="mt-1.5 h-2.5 w-20 rounded bg-zinc-100 dark:bg-zinc-800 animate-pulse"></div></td>
@@ -270,11 +310,7 @@
                   </tr>
                 {:else}
                   <tr><td colspan="4" class="px-4 py-10 text-center">
-                    {#if locked}
-                      <div class="mx-auto w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-lg" aria-hidden="true">🔒</div>
-                      <div class="mt-2 text-[13px] font-bold">Locked</div>
-                      <div class="text-[12px] text-zinc-500 dark:text-zinc-400">Enter your access token above.</div>
-                    {:else if q}
+                    {#if q}
                       <div class="mx-auto w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-lg" aria-hidden="true">⌕</div>
                       <div class="mt-2 text-[13px] font-bold">No matches for “{q}”.</div>
                       <button onclick={()=>q=''} class="mt-2 px-4 py-2 rounded-full border border-zinc-200 dark:border-zinc-700 text-[12px] font-bold">Clear search</button>
