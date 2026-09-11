@@ -1,0 +1,12 @@
+{
+  "name": "filo — Permanent Links",
+  "short_name": "filo",
+  "description": "Upload once, link forever. Personal permanent file archive.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fcfcfd",
+  "theme_color": "#4f46e5",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
