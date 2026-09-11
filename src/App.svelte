@@ -161,12 +161,11 @@
 
     <!-- content -->
     <div class="flex-1 min-h-0 overflow-auto p-4 md:p-6 space-y-6 bg-[#fcfcfd] dark:bg-zinc-950">
-      <!-- upload : one stacked panel, fixed heights so nothing shifts -->
-      <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-panel overflow-hidden shadow-sm">
-        <div class="p-5 md:p-6">
-          <div class="text-center pt-1">
-            <h1 class="text-[28px] font-bold tracking-[-0.03em] leading-[1.15]">Upload once, link forever.</h1>
-            <p class="mt-2 text-[13px] text-zinc-500 dark:text-zinc-400">PDF · image · text — named automatically · 25MB max</p>
+      <!-- upload : compact, files panel gets the room -->
+      <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-panel overflow-hidden shadow-sm shrink-0">
+        <div class="px-5 py-4 md:px-6">
+          <div class="text-center">
+            <h1 class="text-[19px] font-bold tracking-[-0.02em] leading-tight">Upload once, <span class="text-zinc-500 dark:text-zinc-400 font-semibold">link forever.</span></h1>
           </div>
             <label
               ondragover={(e)=>{e.preventDefault(); drag=true}}
@@ -176,9 +175,9 @@
               onclick={()=>fileInput?.click()}
               onkeydown={(e)=>{if(e.key==='Enter'||e.key===' '){e.preventDefault(); fileInput?.click()}}}
               tabindex="0" role="button" aria-label="Upload a file: drop, press Enter, or click to browse"
-              class="mt-5 border-2 border-dashed rounded-2xl h-44 shrink-0 flex flex-col justify-center items-center gap-2.5 px-6 text-center cursor-pointer transition-all duration-150 focus-visible:outline-2 focus-visible:outline-indigo-600 focus-visible:outline-offset-2 {drag?'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 scale-[1.01] shadow-lg shadow-indigo-600/10':'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-white dark:hover:bg-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-500'}"
+              class="mt-3 border-2 border-dashed rounded-2xl h-28 shrink-0 flex flex-col justify-center items-center gap-1.5 px-6 text-center cursor-pointer transition-all duration-150 focus-visible:outline-2 focus-visible:outline-indigo-600 focus-visible:outline-offset-2 {drag?'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 scale-[1.01] shadow-lg shadow-indigo-600/10':'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-white dark:hover:bg-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-500'}"
             >
-              <div class="w-11 h-11 shrink-0 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-sm grid place-items-center text-lg transition-transform duration-150 {drag?'scale-110 -translate-y-0.5':''}" aria-hidden="true">⬆</div>
+              <div class="w-9 h-9 shrink-0 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-sm grid place-items-center text-base transition-transform duration-150 {drag?'scale-110 -translate-y-0.5':''}" aria-hidden="true">⬆</div>
             <div class="min-w-0 max-w-full">
               {#if picked}
                 <div class="flex items-center justify-center gap-2 min-w-0">
@@ -214,9 +213,9 @@
         </div>
       </div>
 
-      <!-- files -->
-      <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-panel overflow-hidden">
-        <div class="overflow-auto max-h-[420px]">
+      <!-- files : gets the room — tall viewport-relative list -->
+      <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-panel overflow-hidden flex-1 min-h-[280px] flex flex-col">
+        <div class="overflow-auto max-h-[62vh] flex-1">
           <table class="w-full text-[13px]">
             <thead class="sticky top-0 bg-zinc-50 dark:bg-zinc-800/80 backdrop-blur border-b border-zinc-100 dark:border-zinc-800">
               <tr class="text-[11px] tracking-wide text-zinc-500 dark:text-zinc-400">
