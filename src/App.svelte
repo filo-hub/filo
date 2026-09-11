@@ -1,4 +1,10 @@
 <script>
+  import {
+    Archive, CloudUpload, Copy, ExternalLink, File, FileText, Film,
+    Image as ImageIcon, LayoutGrid, LoaderCircle, Lock, LogOut, Moon,
+    Music, RotateCcw, Search, Sun, Trash2, X
+  } from 'lucide-svelte'
+
   let picked = $state(null)
   let title = $state('')
   let progress = $state('')
@@ -67,16 +73,16 @@
   }
   function fmtDate(ts){ return new Date(ts).toLocaleDateString() }
   function isSafeId(id){ return /^[A-Za-z0-9]{6,12}$/.test(id) }
+  // File-type icon component (Lucide) — no emoji anywhere in the UI.
   function fileIcon(name){
     const ext=(name.split('.').pop()||'').toLowerCase()
-    if(['jpg','jpeg','png','webp','gif','svg'].includes(ext)) return '🖼️'
-    if(['mp4','mov','webm'].includes(ext)) return '🎬'
-    if(['mp3','wav'].includes(ext)) return '🎵'
-    if(ext==='pdf') return '📄'
-    if(['doc','docx'].includes(ext)) return '📝'
-    if(['xls','xlsx','csv'].includes(ext)) return '📊'
-    if(['zip','rar','7z'].includes(ext)) return '🗜️'
-    return '📄'
+    if(['jpg','jpeg','png','webp','gif','svg'].includes(ext)) return ImageIcon
+    if(['mp4','mov','webm'].includes(ext)) return Film
+    if(['mp3','wav'].includes(ext)) return Music
+    if(ext==='pdf') return FileText
+    if(['doc','docx','xls','xlsx','csv','ppt','pptx','txt'].includes(ext)) return FileText
+    if(['zip','rar','7z','tar','gz'].includes(ext)) return Archive
+    return File
   }
   let storage = $state({ total:0, filo:0, free:10*1024*1024*1024 })
   let filtered = $derived(docs.filter(d=>{
@@ -130,26 +136,35 @@
       resultTimer = setTimeout(()=>{ result=null }, 10000)
     }catch(e){ progress='✕ '+(e.message||'Failed') }
   }
-  let flashTimer
-  function flash(msg){
-    if(progress === 'Uploading…') return
-    progress = msg
-    clearTimeout(flashTimer)
-    flashTimer = setTimeout(()=>{ if(progress === msg) progress = '' }, 1500)
+  // Toasts: transient confirmations (copy, delete, errors). The upload
+  // progress line keeps its own status; toasts never fight it.
+  let toasts = $state([])
+  function toast(msg, kind = 'info'){
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7)
+    toasts = [...toasts, { id, msg, kind }]
+    setTimeout(()=>{ toasts = toasts.filter((t) => t.id !== id) }, 3200)
   }
+  // Delete confirmation modal state (replaces native confirm()).
+  let pendingDelete = $state(null)
   // Permanent links carry the filename (/p/<id>/<filename>) so browser
   // tabs show the name instead of the bare nanoid. The serve route only
   // reads the first path segment, so old /p/<id> links keep working.
   function fileUrl(d){ return location.origin+'/p/'+d.id+'/'+encodeURIComponent(d.filename || d.id) }
   function fileHost(d){ return location.host+'/p/'+d.id+'/'+encodeURIComponent(d.filename || d.id) }
   async function copy(t){
-    try{ await navigator.clipboard.writeText(t); flash('Copied ✓') }catch{ prompt('Copy',t) }
+    try{ await navigator.clipboard.writeText(t); toast('Link copied to clipboard') }
+    catch{ toast('Copy failed — long-press the link to copy it', 'error') }
   }
   async function del(id){
-    if(!confirm('Delete '+id+'?')) return
-    const r=await fetch('/api/delete/'+encodeURIComponent(id),{method:'DELETE', headers:authHeaders()})
-    if(r.status===401){ locked=true; progress='Locked — enter access token'; return }
-    load()
+    try{
+      const r=await fetch('/api/delete/'+encodeURIComponent(id),{method:'DELETE', headers:authHeaders()})
+      pendingDelete=null
+      if(r.status===401){ locked=true; toast('Locked — enter access token', 'error'); return }
+      if(!r.ok){ toast('Delete failed — try again', 'error'); return }
+      if(freshId===id) freshId=null
+      toast('File deleted')
+      load()
+    }catch{ pendingDelete=null; toast('Delete failed — check your connection', 'error') }
   }
 </script>
 
@@ -162,7 +177,7 @@
     </div>
     <nav class="p-3 flex-1 space-y-1">
       <div class="text-[11px] font-bold tracking-widest text-zinc-500 px-2 py-2">MENU</div>
-      <button onclick={()=>q=''} aria-current="true" class="w-full text-left px-3 py-2 rounded-xl text-[13px] font-bold flex items-center gap-2 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"><span aria-hidden="true">▦</span> All files <span class="ml-auto text-[11px] opacity-60">{docs.length}</span></button>
+      <button onclick={()=>q=''} aria-current="true" class="w-full text-left px-3 py-2 rounded-xl text-[13px] font-bold flex items-center gap-2 bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"><LayoutGrid size={15} aria-hidden="true" /> All files <span class="ml-auto text-[11px] tabular-nums opacity-60">{docs.length}</span></button>
     </nav>
     <div class="p-3 border-t border-zinc-100 dark:border-zinc-800 shrink-0">
       <div class="shrink-0 p-3 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 overflow-hidden">
@@ -190,9 +205,9 @@
         <div class="ml-auto hidden sm:block text-[12px] text-zinc-600 dark:text-zinc-400">
           {now.toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric', year:'numeric'})} — {now.toLocaleTimeString('en-US',{hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false})}
         </div>
-        <button onclick={clearToken} title="Forget access token" class="text-[11px] font-bold text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 shrink-0">Lock</button>
+        <button onclick={clearToken} title="Forget access token (lock)" aria-label="Lock — forget access token" class="flex items-center gap-1 text-[11px] font-bold text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 shrink-0 transition-colors"><LogOut size={12} />Lock</button>
       {/if}
-      <button onclick={()=>theme=theme==='dark'?'light':'dark'} title="Toggle theme" aria-label="Toggle dark mode" class="w-8 h-8 shrink-0 rounded-full border border-zinc-200 dark:border-zinc-700 grid place-items-center text-[13px] hover:bg-zinc-100 dark:hover:bg-zinc-800">{theme==='dark'?'☀':'🌙'}</button>
+      <button onclick={()=>theme=theme==='dark'?'light':'dark'} title="Toggle theme" aria-label="Toggle dark mode" class="w-8 h-8 shrink-0 rounded-full border border-zinc-200 dark:border-zinc-700 grid place-items-center text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">{#if theme==='dark'}<Sun size={14} />{:else}<Moon size={14} />{/if}</button>
     </header>
 
     <!-- content -->
@@ -216,7 +231,7 @@
               tabindex="0" role="button" aria-label="Upload a file: drop, press Enter, or click to browse"
               class="mt-3 border-2 border-dashed rounded-2xl h-28 shrink-0 flex flex-col justify-center items-center gap-1.5 px-6 text-center cursor-pointer transition-all duration-150 focus-visible:outline-2 focus-visible:outline-indigo-600 focus-visible:outline-offset-2 {drag?'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 scale-[1.01] shadow-lg shadow-indigo-600/10':'border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 hover:bg-white dark:hover:bg-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-500'}"
             >
-              <div class="w-9 h-9 shrink-0 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-sm grid place-items-center text-base transition-transform duration-150 {drag?'scale-110 -translate-y-0.5':''}" aria-hidden="true">⬆</div>
+              <div class="w-9 h-9 shrink-0 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-sm grid place-items-center text-zinc-400 dark:text-zinc-500 transition-transform duration-150 {drag?'scale-110 -translate-y-0.5':''}" aria-hidden="true"><CloudUpload size={18} /></div>
             <div class="min-w-0 max-w-full">
               {#if picked}
                 <div class="flex items-center justify-center gap-2 min-w-0">
@@ -233,7 +248,7 @@
           </label>
           <div class="mt-3 flex gap-2 items-center">
             <button onclick={doUpload} disabled={!picked} class="flex-1 min-w-0 h-11 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-bold text-[13px] disabled:opacity-40 disabled:saturate-0 flex justify-center items-center gap-2 shadow-md shadow-indigo-600/20 hover:brightness-110 active:scale-[.99] transition">
-              {#if progress==='Uploading…'}<span class="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>{/if}
+              {#if progress==='Uploading…'}<LoaderCircle size={16} class="animate-spin" />{:else}<CloudUpload size={15} />{/if}
               Upload
             </button>
             <input bind:value={title} placeholder="Title (optional)" aria-label="Title (optional)" class="flex-1 min-w-0 h-11 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 focus:bg-white dark:focus:bg-zinc-900 focus:border-zinc-900 dark:focus:border-zinc-100 focus-visible:outline-2 focus-visible:outline-indigo-600 text-[13px] text-center" />
@@ -257,7 +272,7 @@
             <tbody>
               {#if locked}
                 <tr><td colspan="4" class="px-4 py-10 text-center">
-                  <div class="mx-auto w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-lg" aria-hidden="true">🔒</div>
+                  <div class="mx-auto w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-zinc-400 dark:text-zinc-500" aria-hidden="true"><Lock size={18} /></div>
                   <div class="mt-2 text-[13px] font-bold">Locked</div>
                   <div class="text-[12px] text-zinc-500 dark:text-zinc-400">Enter your access token above, or sign in by email.</div>
                   {#if !magicLink}
@@ -287,10 +302,11 @@
                 </td></tr>
               {:else}
                 {#each filtered as d (d.id)}
+                  {@const FileTypeIcon = fileIcon(d.filename)}
                   <tr class="border-b border-zinc-100 dark:border-zinc-800 transition-colors {d.id===freshId?'bg-emerald-50/70 dark:bg-emerald-950/30 hover:bg-emerald-100/70 dark:hover:bg-emerald-950/50':'hover:bg-zinc-50 dark:hover:bg-zinc-800/40'}">
                     <td class="px-4 py-[14px]">
                       <div class="flex gap-2.5 items-center">
-                        <span aria-hidden="true" class="w-8 h-8 shrink-0 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-700/60 grid place-items-center text-[15px]">{fileIcon(d.filename)}</span>
+                        <span class="w-8 h-8 shrink-0 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-700/60 grid place-items-center text-zinc-500 dark:text-zinc-400"><FileTypeIcon size={15} aria-hidden="true" /></span>
                         <span class="min-w-0">
                           <span class="block font-semibold text-[13px] truncate max-w-[160px]">{d.filename}</span>
                           {#if d.title}<span class="block text-[11px] text-zinc-500 dark:text-zinc-400 truncate max-w-[160px]">{d.title}</span>{/if}
@@ -302,20 +318,20 @@
                     <td class="px-4 py-[14px]">
                       <div class="flex gap-1.5 items-center flex-wrap">
                         <button onclick={()=>copy(fileUrl(d))} class="font-mono text-[11px] font-bold text-indigo-600 dark:text-indigo-400 border-b border-dashed border-indigo-300 dark:border-indigo-800 hover:border-indigo-600 dark:hover:border-indigo-400 transition-colors">{fileHost(d)}</button>
-                        <button onclick={()=>copy(fileUrl(d))} class="px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-700 rounded-full text-[11px] font-bold bg-white dark:bg-transparent min-h-[32px] hover:bg-zinc-100 dark:hover:bg-zinc-800 active:scale-[.97] transition">Copy</button>
-                        <a href={fileUrl(d)} target="_blank" class="px-3 py-1.5 rounded-full bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-[11px] font-bold min-h-[32px] inline-flex items-center hover:bg-black dark:hover:bg-white active:scale-[.97] transition">View</a>
-                        <button onclick={()=>del(d.id)} aria-label="Delete {d.filename}" class="px-2.5 py-1.5 rounded-full border border-zinc-200 dark:border-zinc-700 text-[11px] font-bold min-h-[32px] hover:border-red-300 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400 active:scale-[.97] transition">Del</button>
+                        <button onclick={()=>copy(fileUrl(d))} class="px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-700 rounded-full text-[11px] font-bold bg-white dark:bg-transparent min-h-[32px] inline-flex items-center gap-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 active:scale-[.97] transition"><Copy size={12} />Copy</button>
+                        <a href={fileUrl(d)} target="_blank" class="px-3 py-1.5 rounded-full bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-[11px] font-bold min-h-[32px] inline-flex items-center gap-1 hover:bg-black dark:hover:bg-white active:scale-[.97] transition">View<ExternalLink size={12} /></a>
+                        <button onclick={()=>pendingDelete=d} aria-label="Delete {d.filename}" class="px-2.5 py-1.5 rounded-full border border-zinc-200 dark:border-zinc-700 text-[11px] font-bold min-h-[32px] inline-flex items-center gap-1 hover:border-red-300 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400 active:scale-[.97] transition"><Trash2 size={12} />Del</button>
                       </div>
                     </td>
                   </tr>
                 {:else}
                   <tr><td colspan="4" class="px-4 py-10 text-center">
                     {#if q}
-                      <div class="mx-auto w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-lg" aria-hidden="true">⌕</div>
+                      <div class="mx-auto w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-zinc-400 dark:text-zinc-500" aria-hidden="true"><Search size={18} /></div>
                       <div class="mt-2 text-[13px] font-bold">No matches for “{q}”.</div>
-                      <button onclick={()=>q=''} class="mt-2 px-4 py-2 rounded-full border border-zinc-200 dark:border-zinc-700 text-[12px] font-bold">Clear search</button>
+                      <button onclick={()=>q=''} class="mt-2 px-4 py-2 rounded-full border border-zinc-200 dark:border-zinc-700 text-[12px] font-bold inline-flex items-center gap-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"><RotateCcw size={12} />Clear search</button>
                     {:else}
-                      <div class="mx-auto w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-lg" aria-hidden="true">⬆</div>
+                      <div class="mx-auto w-10 h-10 rounded-xl bg-zinc-100 dark:bg-zinc-800 grid place-items-center text-zinc-400 dark:text-zinc-500" aria-hidden="true"><CloudUpload size={18} /></div>
                       <div class="mt-2 text-[13px] font-bold">No files yet.</div>
                       <div class="text-[12px] text-zinc-500 dark:text-zinc-400">Upload one above — its link lives here.</div>
                     {/if}
@@ -327,5 +343,38 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- delete confirmation -->
+  {#if pendingDelete}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 z-50 grid place-items-center bg-zinc-950/45 p-4 backdrop-blur-[2px]"
+      onclick={(e)=>{if(e.target===e.currentTarget) pendingDelete=null}}
+      onkeydown={(e)=>{if(e.key==='Escape') pendingDelete=null}}
+    >
+      <div class="w-full max-w-sm rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 shadow-2xl p-5 animate-rise" role="dialog" aria-modal="true" aria-label="Delete file">
+        <div class="flex items-center gap-3">
+          <span class="w-9 h-9 shrink-0 rounded-xl bg-red-50 dark:bg-red-950/50 text-red-600 dark:text-red-400 grid place-items-center"><Trash2 size={16} /></span>
+          <h2 class="font-bold text-[15px] tracking-tight">Delete this file?</h2>
+        </div>
+        <p class="mt-2 text-[13px] text-zinc-500 dark:text-zinc-400 break-all">{pendingDelete.filename} — the permanent link stops working. This can't be undone.</p>
+        <div class="mt-4 flex gap-2 justify-end">
+          <button onclick={()=>pendingDelete=null} autofocus class="px-4 py-2 rounded-full border border-zinc-200 dark:border-zinc-700 text-[13px] font-bold hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors">Cancel</button>
+          <button onclick={()=>del(pendingDelete.id)} class="px-4 py-2 rounded-full bg-red-600 hover:bg-red-700 active:scale-[.98] transition text-white text-[13px] font-bold">Delete</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- toasts -->
+  <div class="fixed bottom-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none" aria-live="polite">
+    {#each toasts as t (t.id)}
+      <div class="pointer-events-auto flex items-center gap-2 pl-3 pr-4 py-2.5 rounded-xl text-[13px] font-bold shadow-lg border animate-rise {t.kind==='error'?'bg-red-600 border-red-600 text-white':'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 border-transparent'}">
+        {#if t.kind==='error'}<X size={14} />{:else}<Check size={14} />{/if}
+        {t.msg}
+      </div>
+    {/each}
   </div>
 </div>
