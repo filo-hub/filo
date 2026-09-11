@@ -83,9 +83,12 @@
   }
   $effect(()=>{ load() })
   function onPick(f){ if(!f){ picked=null; return } picked=f }
+  let resultTimer
+  let freshId = $state(null)
   async function doUpload(){
     if(!picked) return
     progress='Uploading…'; result=null
+    clearTimeout(resultTimer)
     const fd=new FormData()
     fd.append('file', picked)
     if(title.trim()) fd.append('title', title.trim())
@@ -95,8 +98,12 @@
       const j=await r.json()
       if(!r.ok) throw new Error(j.error||'Upload failed')
       result={ url: j.url || location.origin+'/p/'+j.id, filename:j.filename, size:j.size }
+      freshId=j.id
       progress='✓ Uploaded'; picked=null; if(fileInput) fileInput.value=''; title=''
       load(); setTimeout(()=>progress='',2000)
+      // result is transient — the link lives in the files table permanently
+      clearTimeout(resultTimer)
+      resultTimer = setTimeout(()=>{ result=null }, 10000)
     }catch(e){ progress='✕ '+(e.message||'Failed') }
   }
   let flashTimer
@@ -169,8 +176,11 @@
       <!-- upload : compact, files panel gets the room -->
       <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-panel overflow-hidden shadow-sm shrink-0">
         <div class="px-5 py-4 md:px-6">
-          <div class="text-center">
+          <div class="relative text-center">
             <h1 class="text-[19px] font-bold tracking-[-0.02em] leading-tight">Upload once, <span class="bg-gradient-to-r from-violet-600 to-fuchsia-600 bg-clip-text text-transparent">link forever.</span></h1>
+            {#if result}
+              <a href={result.url} target="_blank" title="{result.filename} — open" class="absolute right-0 top-1/2 -translate-y-1/2 max-w-[130px] truncate text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:underline">✓ Uploaded</a>
+            {/if}
           </div>
             <label
               ondragover={(e)=>{e.preventDefault(); drag=true}}
@@ -205,16 +215,6 @@
             <input bind:value={title} placeholder="Title (optional)" aria-label="Title (optional)" class="flex-1 min-w-0 h-11 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 focus:bg-white dark:focus:bg-zinc-900 focus:border-zinc-900 dark:focus:border-zinc-100 focus-visible:outline-2 focus-visible:outline-indigo-600 text-[13px] text-center" />
           </div>
           <div class="mt-2 min-h-[22px] text-center text-[12px] font-bold {progress.startsWith('✓')?'text-emerald-600 dark:text-emerald-400':'text-zinc-500 dark:text-zinc-400'}" role="status" aria-live="polite">{#if progress && progress!=='Uploading…'}{progress}{/if}</div>
-          {#if result}
-            <div class="mt-1 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 text-center animate-rise" role="status">
-              <div class="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300">✓ Permanent link ready — {result.filename}</div>
-              <a href={result.url} target="_blank" class="font-mono text-[13px] font-bold break-all text-emerald-800 dark:text-emerald-200 underline decoration-emerald-300 dark:decoration-emerald-800">{result.url}</a>
-              <div class="flex gap-2 mt-2">
-                <button onclick={()=>copy(result.url)} class="flex-1 py-2 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-[.99] transition text-white font-bold text-[12px]">Copy link</button>
-                <a href={result.url} target="_blank" class="py-2 px-4 rounded-full text-emerald-700 dark:text-emerald-300 font-bold text-[12px] hover:underline">Open ↗</a>
-              </div>
-            </div>
-          {/if}
         </div>
       </div>
 
@@ -247,7 +247,7 @@
                 </td></tr>
               {:else}
                 {#each filtered as d (d.id)}
-                  <tr class="border-b border-zinc-100 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors">
+                  <tr class="border-b border-zinc-100 dark:border-zinc-800 {d.id===freshId?'bg-emerald-50/70 dark:bg-emerald-950/30':'hover:bg-zinc-50 dark:hover:bg-zinc-800/40'} transition-colors">
                     <td class="px-4 py-[14px]">
                       <div class="flex gap-2.5 items-center">
                         <span aria-hidden="true" class="w-8 h-8 shrink-0 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200/60 dark:border-zinc-700/60 grid place-items-center text-[15px]">{fileIcon(d.filename)}</span>
