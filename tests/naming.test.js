@@ -113,6 +113,19 @@ describe("content-based naming", () => {
     expect(j.filename).toMatch(new RegExp(`^backup2024${todayStamp()}[A-Za-z0-9]{8}\\.zip$`));
   });
 
+  it("puts the filename in the URL so tabs show the name, not the id", async () => {
+    const { r, j } = await upload(new File([PDF_TITLED], "scan.pdf", { type: "application/pdf" }));
+    expect(r.status).toBe(200);
+    expect(j.url).toMatch(new RegExp(`/p/${j.id}/` + encodeURIComponent(j.filename) + "$"));
+    // slugged URL serves the exact bytes…
+    const slugged = await fetch(`https://example.com/p/${j.id}/` + encodeURIComponent(j.filename));
+    expect(slugged.status).toBe(200);
+    expect(await slugged.text()).toBe(PDF_TITLED);
+    // …and the bare legacy URL keeps working
+    const bare = await fetch(`https://example.com/p/${j.id}`);
+    expect(bare.status).toBe(200);
+  });
+
   it("sniffs the first line for text with a generic filename", async () => {
     // browser default filename ("blob") is unusable → first-line sniffing
     const fd = new FormData();

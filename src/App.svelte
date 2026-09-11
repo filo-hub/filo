@@ -94,7 +94,7 @@
       if(r.status===401){ locked=true; throw new Error('Locked — enter access token') }
       const j=await r.json()
       if(!r.ok) throw new Error(j.error||'Upload failed')
-      result={ url: location.origin+'/p/'+j.id, filename:j.filename, size:j.size }
+      result={ url: j.url || location.origin+'/p/'+j.id, filename:j.filename, size:j.size }
       progress='✓ Uploaded'; picked=null; if(fileInput) fileInput.value=''; title=''
       load(); setTimeout(()=>progress='',2000)
     }catch(e){ progress='✕ '+(e.message||'Failed') }
@@ -106,6 +106,11 @@
     clearTimeout(flashTimer)
     flashTimer = setTimeout(()=>{ if(progress === msg) progress = '' }, 1500)
   }
+  // Permanent links carry the filename (/p/<id>/<filename>) so browser
+  // tabs show the name instead of the bare nanoid. The serve route only
+  // reads the first path segment, so old /p/<id> links keep working.
+  function fileUrl(d){ return location.origin+'/p/'+d.id+'/'+encodeURIComponent(d.filename || d.id) }
+  function fileHost(d){ return location.host+'/p/'+d.id+'/'+encodeURIComponent(d.filename || d.id) }
   async function copy(t){
     try{ await navigator.clipboard.writeText(t); flash('Copied ✓') }catch{ prompt('Copy',t) }
   }
@@ -256,9 +261,9 @@
                     <td class="px-4 py-[14px] text-zinc-500 dark:text-zinc-400 text-[12px] hidden sm:table-cell">{fmtDate(d.uploaded_at)}</td>
                     <td class="px-4 py-[14px]">
                       <div class="flex gap-1.5 items-center flex-wrap">
-                        <button onclick={()=>copy(location.origin+'/p/'+d.id)} class="font-mono text-[11px] font-bold text-indigo-600 dark:text-indigo-400 border-b border-dashed border-indigo-300 dark:border-indigo-800 hover:border-indigo-600 dark:hover:border-indigo-400 transition-colors">{location.host}/p/{d.id}</button>
-                        <button onclick={()=>copy(location.origin+'/p/'+d.id)} class="px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-700 rounded-full text-[11px] font-bold bg-white dark:bg-transparent min-h-[32px] hover:bg-zinc-100 dark:hover:bg-zinc-800 active:scale-[.97] transition">Copy</button>
-                        <a href={location.origin+'/p/'+d.id} target="_blank" class="px-3 py-1.5 rounded-full bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-[11px] font-bold min-h-[32px] inline-flex items-center hover:bg-black dark:hover:bg-white active:scale-[.97] transition">View</a>
+                        <button onclick={()=>copy(fileUrl(d))} class="font-mono text-[11px] font-bold text-indigo-600 dark:text-indigo-400 border-b border-dashed border-indigo-300 dark:border-indigo-800 hover:border-indigo-600 dark:hover:border-indigo-400 transition-colors">{fileHost(d)}</button>
+                        <button onclick={()=>copy(fileUrl(d))} class="px-2.5 py-1.5 border border-zinc-200 dark:border-zinc-700 rounded-full text-[11px] font-bold bg-white dark:bg-transparent min-h-[32px] hover:bg-zinc-100 dark:hover:bg-zinc-800 active:scale-[.97] transition">Copy</button>
+                        <a href={fileUrl(d)} target="_blank" class="px-3 py-1.5 rounded-full bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900 text-[11px] font-bold min-h-[32px] inline-flex items-center hover:bg-black dark:hover:bg-white active:scale-[.97] transition">View</a>
                         <button onclick={()=>del(d.id)} aria-label="Delete {d.filename}" class="px-2.5 py-1.5 rounded-full border border-zinc-200 dark:border-zinc-700 text-[11px] font-bold min-h-[32px] hover:border-red-300 hover:text-red-600 dark:hover:border-red-800 dark:hover:text-red-400 active:scale-[.97] transition">Del</button>
                       </div>
                     </td>

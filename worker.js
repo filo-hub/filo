@@ -874,12 +874,16 @@ export default {
         // fire-and-forget: audit must never add tail latency to uploads
         ctx.waitUntil(audit(env, "upload", id, filename, `${file.size} bytes`));
         const base = `${url.protocol}//${getSafeHost(req, url)}`;
+        // Filename in the URL path: browsers show it in the tab instead of
+        // the bare nanoid. The serve route only reads the first segment as
+        // the id, so old /p/<id> links keep working untouched.
+        const slug = encodeURIComponent(filename);
         return json({
           id,
           filename,
           size: file.size,
           etag,
-          url: `${base}/p/${id}`,
+          url: `${base}/p/${id}/${slug}`,
           message: "Uploaded. This URL is permanent.",
         });
       } catch (e) {
