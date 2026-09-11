@@ -160,7 +160,7 @@
     </header>
 
     <!-- content -->
-    <div class="flex-1 min-h-0 overflow-auto px-4 pt-4 pb-2 md:px-6 md:pt-6 md:pb-3 space-y-4 md:space-y-5 bg-[#fcfcfd] dark:bg-zinc-950">
+    <div class="flex-1 min-h-0 overflow-auto px-4 pt-4 pb-2 md:px-6 md:pt-6 md:pb-3 bg-[#fcfcfd] dark:bg-zinc-950 flex flex-col gap-4 md:gap-5">
       <!-- upload : compact, files panel gets the room -->
       <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-panel overflow-hidden shadow-sm shrink-0">
         <div class="px-5 py-4 md:px-6">
@@ -214,7 +214,7 @@
       </div>
 
       <!-- files : fills to the bottom edge, scrolls internally -->
-      <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-panel overflow-hidden flex-1 min-h-[280px] flex flex-col">
+      <div class="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-panel overflow-hidden flex-1 min-h-0 flex flex-col">
         <div class="overflow-auto flex-1 min-h-0">
           <table class="w-full text-[13px]">
             <thead class="sticky top-0 bg-zinc-50 dark:bg-zinc-800/80 backdrop-blur border-b border-zinc-100 dark:border-zinc-800">
